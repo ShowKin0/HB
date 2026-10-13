@@ -1,0 +1,96 @@
+/* ============================================================================
+   设计令牌。
+   字体不在构建期打包 —— 中文字体全字库有 3~8MB，会直接毁掉首屏。
+   正确做法是用 pyftsubset 子集化后放进 public/fonts 再在这里 @font-face 引用，
+   见 README 的"字体子集化"。这里只声明字体栈，缺失时回落到系统字体。
+   ========================================================================== */
+
+:root {
+  --font-narrative: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', 'SimSun', serif;
+  --font-hand: 'LXGW WenKai', 'Noto Sans SC', 'PingFang SC', sans-serif;
+  --font-ui: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+
+  --bg-0: #0d0b0a;
+  --bg-1: #16120f;
+  --bg-2: #201a16;
+  --bg-3: #2b2320;
+  --line: rgba(226, 208, 180, 0.14);
+  --line-strong: rgba(226, 208, 180, 0.28);
+
+  --ink-0: #f4ece0;
+  --ink-1: #d8cbb8;
+  --ink-2: #9d9083;
+  --ink-3: #6b6157;
+
+  --accent: #d9a566;
+  --accent-soft: rgba(217, 165, 102, 0.16);
+  --danger: #d9705f;
+
+  --radius-s: 6px;
+  --radius-m: 12px;
+  --radius-l: 18px;
+  --shadow-panel: 0 18px 48px rgba(0, 0, 0, 0.55);
+  --shadow-soft: 0 6px 20px rgba(0, 0, 0, 0.35);
+
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+
+  /**
+   * 底部为对话框预留的高度。
+   *
+   * 引擎读的是它的**最小值**（getComputedStyle().minHeight），作为场景
+   * letterbox 时的底部留白 —— 于是角色走到房间最前排也不会被对话框盖住。
+   *
+   * 这里必须按"最常见的三行长句"来定（约 170px）：
+   * 定小了会把台词裁掉，定大了会白白压扁场景。
+   * 真正的长台词允许对话框向上生长、略微压住场景，但绝不裁字。
+   */
+  --dialogue-band: clamp(168px, 26vh, 220px);
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg-0);
+  color: var(--ink-0);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+button:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 尊重系统的"减少动态效果"设置 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

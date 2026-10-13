@@ -1,0 +1,124 @@
+{
+  "id": "memory_table",
+  "title": "桌面特写（focus 模式示例）",
+  "mode": "focus",
+  "bg": null,
+  "bgm": null,
+  "aspect": 1.7777777777777777,
+  "ground": null,
+  "walkable": null,
+  "actors": [],
+  "hotspots": [
+    {
+      "id": "photo_frame",
+      "shape": { "type": "rect", "x": 0.3, "y": 0.3, "w": 0.16, "h": 0.24 },
+      "label": "相框",
+      "cursor": "look",
+      "visibleWhen": null,
+      "approach": null,
+      "image": null,
+      "visualStates": {},
+      "initialState": "closed",
+      "position": [0.38, 0.54],
+      "anchor": [0.5, 1],
+      "height": 0.3,
+      "scale": 1,
+      "rotation": 0,
+      "v": 0.5,
+      "shadow": true,
+      "anim": { "type": "float", "amplitude": 0.006, "speed": 0.4, "phase": 0 },
+      "interactions": [
+        {
+          "verb": "inspect",
+          "when": null,
+          "item": null,
+          "accepts": [],
+          "action": "focus_frame",
+          "setState": "opened",
+          "setVisible": null,
+          "emit": "frame_opened",
+          "sfx": null
+        }
+      ]
+    },
+    {
+      "id": "music_box",
+      "shape": { "type": "rect", "x": 0.62, "y": 0.42, "w": 0.14, "h": 0.16 },
+      "label": "八音盒",
+      "cursor": "use",
+      "visibleWhen": null,
+      "approach": null,
+      "image": null,
+      "visualStates": {},
+      "initialState": "idle",
+      "position": [0.69, 0.58],
+      "anchor": [0.5, 1],
+      "height": 0.2,
+      "scale": 1,
+      "rotation": 0,
+      "v": 0.6,
+      "shadow": true,
+      "anim": { "type": "sway", "amplitude": 0.005, "speed": 0.7, "phase": 1.2 },
+      "interactions": [
+        {
+          "verb": "inspect",
+          "when": null,
+          "item": null,
+          "accepts": [],
+          "action": "focus_music_box",
+          "setState": "playing",
+          "setVisible": null,
+          "emit": "music_started",
+          "sfx": null
+        }
+      ]
+    },
+    {
+      "id": "letter",
+      "shape": { "type": "rect", "x": 0.42, "y": 0.62, "w": 0.18, "h": 0.12 },
+      "label": "信",
+      "cursor": "take",
+      "visibleWhen": null,
+      "approach": null,
+      "image": null,
+      "visualStates": {},
+      "initialState": null,
+      "position": [0.51, 0.74],
+      "anchor": [0.5, 1],
+      "height": 0.14,
+      "scale": 1,
+      "rotation": 0,
+      "v": 0.7,
+      "shadow": true,
+      "anim": { "type": "none", "amplitude": 0.008, "speed": 0.6, "phase": 0 },
+      "interactions": [
+        {
+          "verb": "inspect",
+          "when": null,
+          "item": null,
+          "accepts": [],
+          "action": "focus_letter",
+          "setState": null,
+          "setVisible": null,
+          "emit": "letter_read",
+          "sfx": null
+        },
+        {
+          "verb": "drag",
+          "when": null,
+          "item": null,
+          "accepts": ["item_key"],
+          "action": "focus_letter",
+          "setState": null,
+          "setVisible": false,
+          "emit": "letter_filed",
+          "sfx": null
+        }
+      ]
+    }
+  ],
+  "layers": [],
+  "exits": [],
+  "entry": "focus_table",
+  "hub": "hub"
+}

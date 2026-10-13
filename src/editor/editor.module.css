@@ -1,0 +1,181 @@
+﻿.root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  background: #0b0a09;
+  color: #e8ded0;
+  font-family: system-ui, 'Microsoft YaHei', sans-serif;
+  font-size: 13px;
+}
+
+.sidebar {
+  width: 320px;
+  flex: none;
+  overflow: auto;
+  border-right: 1px solid rgba(226, 208, 180, 0.16);
+  background: #14110f;
+  padding: 14px;
+}
+
+.stage {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  /* svg 是替换元素：只写 inset:0 而 width 为 auto 时，它会保持 300×150 的
+     固有尺寸，整个覆盖层就废了。必须显式给宽高。 */
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.title {
+  font-size: 14px;
+  letter-spacing: 0.14em;
+  color: #d9a566;
+  margin: 0 0 12px;
+}
+
+.section {
+  border-top: 1px solid rgba(226, 208, 180, 0.12);
+  padding: 10px 0;
+}
+
+.sectionTitle {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: #9d9083;
+  margin-bottom: 8px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.label {
+  flex: none;
+  width: 74px;
+  color: #9d9083;
+}
+
+.input,
+.select {
+  flex: 1;
+  min-width: 0;
+  background: #1d1917;
+  border: 1px solid rgba(226, 208, 180, 0.18);
+  border-radius: 5px;
+  color: #e8ded0;
+  padding: 5px 7px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.button {
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 5px;
+  border: 1px solid rgba(226, 208, 180, 0.2);
+  background: #1d1917;
+  color: #d8cbb8;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.button:hover {
+  border-color: rgba(226, 208, 180, 0.4);
+}
+
+.buttonActive {
+  border-color: #d9a566;
+  color: #d9a566;
+  background: rgba(217, 165, 102, 0.14);
+}
+
+.buttonPrimary {
+  width: 100%;
+  min-height: 34px;
+  border-color: #d9a566;
+  color: #d9a566;
+  background: rgba(217, 165, 102, 0.14);
+  margin-top: 6px;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hotspotItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 7px;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.hotspotItem:hover {
+  background: #1d1917;
+}
+
+.hotspotSelected {
+  border-color: #d9a566;
+  background: rgba(217, 165, 102, 0.1);
+}
+
+.mono {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #9d9083;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.warn {
+  color: #e0a08f;
+}
+
+.hint {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(12, 10, 9, 0.82);
+  border: 1px solid rgba(226, 208, 180, 0.16);
+  color: #9d9083;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}

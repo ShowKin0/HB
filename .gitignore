@@ -1,0 +1,35 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# 原图（可能几十 MB 一张）。只提交压好的产物到 public/assets/。
+# 若希望原图也进版本库（建议如此，方便重出图），删掉下面这行。
+art-src
+
+# 测试与截图产物
+screenshots
+test-results
+playwright-report
+blob-report
+playwright/.cache
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

@@ -1,0 +1,27 @@
+# 需要 HTTPS 时用这份配置（docker compose --profile tls up -d）。
+#
+# 这里只做 TLS 终止 + 反向代理，静态文件与缓存策略仍然由 web 容器里的
+# nginx 统一负责 —— 两处各配一份缓存规则迟早会不一致。
+#
+# 前提：你得有一个**已备案**的域名解析到这台服务器。
+# 中国大陆的服务器上，未备案域名访问 80/443 会被阻断；
+# 没有备案域名就先用 IP + 非标端口跑 HTTP，不要走这条路。
+#
+# Caddy 会自动申请并续期 Let's Encrypt 证书，不需要手动跑 certbot。
+
+{
+	email you@example.com
+}
+
+你的域名.example.com {
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		X-Frame-Options SAMEORIGIN
+		-Server
+	}
+
+	reverse_proxy web:80
+}

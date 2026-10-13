@@ -1,0 +1,19 @@
+node_modules
+dist
+dist-ssr
+
+# 原图可能几十 MB 一张，绝不能进构建上下文
+art-src
+
+# 测试与截图产物
+screenshots
+test-results
+playwright-report
+blob-report
+playwright/.cache
+
+.git
+.gitignore
+*.md
+.vscode
+.idea

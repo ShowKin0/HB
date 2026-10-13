@@ -1,0 +1,401 @@
+/* 交互层。所有可点击元素的命中区不小于 44px，符合移动端触控基线。 */
+
+.root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: radial-gradient(circle at 50% 30%, var(--bg-2), var(--bg-0) 70%);
+}
+
+.canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+/* ── 顶部工具条 ─────────────────────────────────────────────── */
+
+.hud {
+  position: absolute;
+  top: calc(var(--safe-t) + 10px);
+  right: 12px;
+  display: flex;
+  gap: 8px;
+  z-index: 20;
+}
+
+.hudButton {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: var(--radius-m);
+  border: 1px solid var(--line);
+  background: rgba(20, 16, 14, 0.72);
+  backdrop-filter: blur(8px);
+  color: var(--ink-1);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.hudButton:hover {
+  border-color: var(--line-strong);
+  color: var(--ink-0);
+}
+
+.hudButtonActive {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* ── 对话框 ─────────────────────────────────────────────────── */
+
+.dialogueLayer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* min-height 而不是 height：
+     短台词时它是稳定的底部留白锚点；长台词时它向上生长（因为锚在 bottom:0），
+     宁可压住一点场景，也绝不裁字或让玩家滚动读台词。 */
+  min-height: calc(var(--dialogue-band) + var(--safe-b));
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 12px calc(var(--safe-b) + 10px);
+  z-index: 15;
+  pointer-events: none;
+}
+
+.dialogue {
+  width: min(760px, 100%);
+  pointer-events: auto;
+  border-radius: var(--radius-l);
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(26, 21, 18, 0.94), rgba(16, 13, 11, 0.97));
+  box-shadow: var(--shadow-panel);
+  padding: 16px 20px 14px;
+  animation: rise 0.24s ease-out;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.speaker {
+  font-family: var(--font-hand);
+  font-size: 13px;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+
+.text {
+  font-family: var(--font-narrative);
+  font-size: 17px;
+  line-height: 1.85;
+  letter-spacing: 0.02em;
+  color: var(--ink-0);
+  white-space: pre-wrap;
+  margin: 0;
+}
+
+.advanceHint {
+  margin-top: 10px;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--ink-3);
+  text-align: right;
+  animation: blink 1.8s ease-in-out infinite;
+}
+
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ── 选项 ───────────────────────────────────────────────────── */
+
+.choiceLayer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 18;
+  background: rgba(8, 6, 5, 0.42);
+  backdrop-filter: blur(2px);
+}
+
+.choiceList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(520px, 100%);
+}
+
+.choice {
+  padding: 15px 18px;
+  border-radius: var(--radius-m);
+  border: 1px solid var(--line);
+  background: rgba(26, 21, 18, 0.92);
+  color: var(--ink-0);
+  font-family: var(--font-narrative);
+  font-size: 16px;
+  line-height: 1.6;
+  text-align: left;
+  transition: border-color 0.15s, transform 0.15s, background 0.15s;
+}
+
+.choice:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  transform: translateX(3px);
+}
+
+/* ── 物品栏 ─────────────────────────────────────────────────── */
+
+.inventory {
+  position: absolute;
+  left: 12px;
+  bottom: calc(var(--safe-b) + 12px);
+  display: flex;
+  gap: 8px;
+  z-index: 16;
+  flex-wrap: wrap;
+  max-width: 46vw;
+}
+
+.item {
+  min-height: 44px;
+  padding: 8px 14px;
+  border-radius: var(--radius-m);
+  border: 1px dashed var(--line-strong);
+  background: rgba(20, 16, 14, 0.8);
+  color: var(--ink-1);
+  font-size: 13px;
+  letter-spacing: 0.05em;
+}
+
+.itemSelected {
+  border-style: solid;
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* ── 面板 ───────────────────────────────────────────────────── */
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(6, 5, 4, 0.62);
+  backdrop-filter: blur(3px);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.panel {
+  width: min(560px, 100%);
+  max-height: min(78vh, 700px);
+  overflow: auto;
+  border-radius: var(--radius-l);
+  border: 1px solid var(--line-strong);
+  background: linear-gradient(180deg, var(--bg-2), var(--bg-1));
+  box-shadow: var(--shadow-panel);
+  padding: 20px;
+}
+
+.panelTitle {
+  font-family: var(--font-hand);
+  font-size: 15px;
+  letter-spacing: 0.16em;
+  color: var(--accent);
+  margin: 0 0 16px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.rowLabel {
+  color: var(--ink-1);
+}
+
+.rowValue {
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+
+.slider {
+  width: 150px;
+  accent-color: var(--accent);
+}
+
+.primaryButton {
+  width: 100%;
+  min-height: 46px;
+  border-radius: var(--radius-m);
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  letter-spacing: 0.1em;
+  font-size: 14px;
+  transition: background 0.15s;
+}
+
+.primaryButton:hover {
+  background: rgba(217, 165, 102, 0.26);
+}
+
+.ghostButton {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.ghostButton:hover {
+  border-color: var(--line-strong);
+  color: var(--ink-0);
+}
+
+.toggleGroup {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mono {
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.errorText {
+  color: var(--danger);
+}
+
+/* ── 轻提示 ─────────────────────────────────────────────────── */
+
+.toasts {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--safe-t) + 14px);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 40;
+  width: min(440px, calc(100vw - 24px));
+}
+
+.toast {
+  border-radius: var(--radius-m);
+  border: 1px solid var(--line);
+  background: rgba(24, 19, 16, 0.96);
+  box-shadow: var(--shadow-soft);
+  padding: 11px 14px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink-1);
+  animation: rise 0.2s ease-out;
+}
+
+.toastError {
+  border-color: rgba(217, 112, 95, 0.5);
+  color: #f0b8ae;
+}
+
+/* ── 启动与加载 ─────────────────────────────────────────────── */
+
+.boot {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: radial-gradient(circle at 50% 40%, var(--bg-2), var(--bg-0) 72%);
+  z-index: 60;
+  padding: 24px;
+  text-align: center;
+}
+
+.bootTitle {
+  font-family: var(--font-hand);
+  font-size: 22px;
+  letter-spacing: 0.3em;
+  color: var(--ink-1);
+}
+
+.bootMessage {
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  color: var(--ink-3);
+  max-width: 30em;
+  line-height: 1.8;
+}
+
+.bootBar {
+  width: min(240px, 60vw);
+  height: 2px;
+  background: var(--line);
+  overflow: hidden;
+  border-radius: 2px;
+}
+
+.bootBarFill {
+  height: 100%;
+  width: 40%;
+  background: var(--accent);
+  animation: slide 1.3s ease-in-out infinite;
+}
+
+@keyframes slide {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(260%);
+  }
+}

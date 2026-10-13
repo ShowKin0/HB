@@ -1,0 +1,44 @@
+# 单文件部署。
+#
+#   docker compose up -d --build          只跑 nginx（IP + 端口直连，最省事）
+#   docker compose --profile tls up -d    额外起 Caddy 自动 HTTPS（需要已备案域名）
+#
+# 中国大陆服务器的现实约束：未备案域名访问 80/443 会被阻断。
+# 所以映射到 724 端口，用 http://<你的IP>:724 直接访问即可。
+#
+# 注意 724 是特权端口（<1024）。dockerd 以 root 运行时能正常绑定；
+# 若你用的是 rootless Docker，需要改成 1024 以上的端口，或给 dockerd
+# 加上 CAP_NET_BIND_SERVICE。端口本身可用 HB_PORT 覆盖：
+#   HB_PORT=8080 docker compose up -d --build
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: hb-web:latest
+    container_name: hb-web
+    restart: unless-stopped
+    ports:
+      - "${HB_PORT:-724}:80"
+
+  # 只有显式启用 tls profile 时才会启动。
+  # 它只负责 TLS 终止，静态文件与缓存策略仍由 web 容器里的 nginx 统一负责。
+  caddy:
+    image: caddy:2-alpine
+    container_name: hb-caddy
+    restart: unless-stopped
+    profiles: ["tls"]
+    depends_on:
+      - web
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

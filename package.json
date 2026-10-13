@@ -1,0 +1,45 @@
+{
+  "name": "hb",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "npm run ink:build && vite",
+    "build": "npm run content:check && npm run ink:build && tsc -b && vite build",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:editor": "playwright test --config=playwright.editor.config.ts",
+    "content:check": "node scripts/content-check.ts",
+    "content:check:strict": "node scripts/content-check.ts --strict",
+    "ink:build": "node scripts/ink-build.ts",
+    "script:export": "node scripts/script-export.ts",
+    "vo:check": "node scripts/vo-check.ts",
+    "assets:manifest": "node scripts/assets-manifest.ts",
+    "img:optimize": "node scripts/img-optimize.ts"
+  },
+  "dependencies": {
+    "howler": "^2.2.4",
+    "inkjs": "^2.4.0",
+    "motion": "^14.1.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "zod": "^4.6.5",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.0",
+    "@types/howler": "^2.2.13",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "oxlint": "^1.81.0",
+    "sharp": "^0.35.5",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.3"
+  }
+}
