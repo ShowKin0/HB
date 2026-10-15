@@ -11,8 +11,8 @@
  */
 import { mkdir, readdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { buildInk, listInkSources } from './lib/ink.ts'
-import { CONTENT_DIR, VOICE_CSV, rel } from './lib/project.ts'
+import { buildInkSources, listInkSources } from './lib/ink.ts'
+import { ASSETS_DIR, CONTENT_DIR, VOICE_CSV, rel } from './lib/project.ts'
 
 const files = await listInkSources()
 if (files.length === 0) {
@@ -32,28 +32,39 @@ const duplicateIds = new Map<string, number>()
 let totalLines = 0
 let missingId = 0
 
-for (const file of files) {
-  const result = await buildInk(file)
+const build = await buildInkSources(files)
+if (!build.entryFile || !build.entryResult) {
+  process.stderr.write('没有可用的 Ink 入口源文件。\n')
+  process.exit(1)
+}
+for (const { file, result } of build.checkedSources) {
   if (result.errors.length > 0) {
     process.stderr.write(`✗ ${rel(file)} 编译失败，先运行 npm run ink:build 看详情\n`)
     process.exit(1)
   }
+}
+if (build.entryResult.lineReport.status === 'truncated') {
+  process.stderr.write(
+    `✗ ${rel(build.entryFile)} 台词收集触及上限：${build.entryResult.lineReport.stopReasons.join(', ')}。` +
+      '拒绝生成不完整配音表；这不是对 Ink 动态分支的穷尽证明。\n',
+  )
+  process.exit(1)
+}
 
-  let speaker = ''
-  for (const line of result.lines) {
-    totalLines += 1
-    const voTag = line.tags.find((tag) => tag.trim().toLowerCase().startsWith('vo:'))
-    const speakerTag = line.tags.find((tag) => tag.trim().toLowerCase().startsWith('speaker:'))
-    if (speakerTag) speaker = speakerTag.slice(speakerTag.indexOf(':') + 1).trim()
+let speaker = ''
+for (const line of build.entryResult.lines) {
+  totalLines += 1
+  const voTag = line.tags.find((tag) => tag.trim().toLowerCase().startsWith('vo:'))
+  const speakerTag = line.tags.find((tag) => tag.trim().toLowerCase().startsWith('speaker:'))
+  if (speakerTag) speaker = speakerTag.slice(speakerTag.indexOf(':') + 1).trim()
 
-    const lineId = voTag ? voTag.slice(voTag.indexOf(':') + 1).trim() : ''
-    if (!lineId) {
-      missingId += 1
-      continue
-    }
-    duplicateIds.set(lineId, (duplicateIds.get(lineId) ?? 0) + 1)
-    rows.push({ lineId, knot: line.knot, speaker, text: line.text })
+  const lineId = voTag ? voTag.slice(voTag.indexOf(':') + 1).trim() : ''
+  if (!lineId) {
+    missingId += 1
+    continue
   }
+  duplicateIds.set(lineId, (duplicateIds.get(lineId) ?? 0) + 1)
+  rows.push({ lineId, knot: line.knot, speaker, text: line.text })
 }
 
 await mkdir(CONTENT_DIR, { recursive: true })
@@ -79,7 +90,7 @@ if (duplicates.length > 0) {
 }
 
 // 顺带把录音目录建出来，省得你自己创建
-const voDir = path.join(process.cwd(), 'public', 'assets', 'audio', 'vo')
+const voDir = path.join(ASSETS_DIR, 'audio', 'vo')
 await mkdir(voDir, { recursive: true })
 const existing = await readdir(voDir).catch(() => [] as string[])
 process.stdout.write(`    录音放到 public/assets/audio/vo/，按 <line_id>.m4a 命名（当前已有 ${existing.length} 个文件）\n\n`)

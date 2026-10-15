@@ -36,7 +36,20 @@ export class SaveManager {
     return this.storage !== null
   }
 
-  save(slot: string, label: string, inkState: string, engine: EngineState, contentVersion = ''): boolean {
+  /**
+   * @param contentVersion 自动算出来的内容指纹（任何改动都会变）
+   * @param saveCompatibility 作者手写的兼容意图声明（"这次改剧情没破坏存档结构"）
+   *
+   * 两个都**没有默认值**：能悄悄丢信息的默认值，比要求调用方多写一个参数危险得多。
+   */
+  save(
+    slot: string,
+    label: string,
+    inkState: string,
+    engine: EngineState,
+    contentVersion: string,
+    saveCompatibility: string,
+  ): boolean {
     if (!this.storage) return false
     const now = Date.now()
     const previous = this.load(slot)
@@ -46,6 +59,7 @@ export class SaveManager {
       updatedAt: now,
       label,
       contentVersion,
+      saveCompatibility,
       inkState,
       engine,
     }
@@ -68,9 +82,21 @@ export class SaveManager {
     }
   }
 
-  /** 自动存档：每次状态变化都会调用，因此必须便宜。 */
-  autosave(inkState: string, engine: EngineState, contentVersion = ''): void {
-    this.save(AUTO_SLOT, '自动存档', inkState, engine, contentVersion)
+  /**
+   * 自动存档：每次状态变化都会调用，因此必须便宜。
+   *
+   * `contentVersion` **没有默认值**是故意的。它以前默认空串，于是定时路径
+   * 忘了传、页面又被系统杀掉（没触发 pagehide 补写）时，落盘的就是一份
+   * 没有指纹的存档 —— 下次读档时"内容已更新"的提示会被静默跳过。
+   * 一个能悄悄丢信息的默认值，比要求调用方多写一个参数危险得多。
+   */
+  autosave(
+    inkState: string,
+    engine: EngineState,
+    contentVersion: string,
+    saveCompatibility: string,
+  ): void {
+    this.save(AUTO_SLOT, '自动存档', inkState, engine, contentVersion, saveCompatibility)
   }
 
   remove(slot: string): void {

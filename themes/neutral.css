@@ -1,0 +1,61 @@
+/* ============================================================================
+   中性默认主题（引擎自带）
+   ==========================================================================
+
+   **这不是最终游戏的风格**，它是引擎的安全默认值：没有主题包、素材还没做、
+   开发时调试引擎，都用这一套。深色也不是因为"这个游戏是深色的"，而是因为
+   深色当占位最不抢眼 —— 缺图时画面上剩下的东西越少越好。
+
+   这一层只管**外观**：颜色、圆角、阴影、字体栈、明暗模式。
+   布局尺寸、安全区、对话占位属于引擎结构，留在 src/styles.css 里 ——
+   主题换一套不该把布局也换掉。
+
+   主题的加载方式见 src/theme/applyTheme.ts：内容用 `theme` 字段声明，
+   引擎按需动态加载对应 CSS，没声明的主题不会进首屏。
+   ========================================================================== */
+
+:root,
+[data-theme='neutral'] {
+  --font-narrative: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', 'SimSun', serif;
+  --font-hand: 'LXGW WenKai', 'Noto Sans SC', 'PingFang SC', sans-serif;
+  --font-ui: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+
+  --bg-0: #0d0b0a;
+  --bg-1: #16120f;
+  --bg-2: #201a16;
+  --bg-3: #2b2320;
+  --line: rgba(226, 208, 180, 0.14);
+  --line-strong: rgba(226, 208, 180, 0.28);
+
+  --ink-0: #f4ece0;
+  --ink-1: #d8cbb8;
+  --ink-2: #9d9083;
+  --ink-3: #6b6157;
+
+  --accent: #d9a566;
+  --accent-soft: rgba(217, 165, 102, 0.16);
+  --danger: #d9705f;
+
+  --radius-s: 6px;
+  --radius-m: 12px;
+  --radius-l: 18px;
+  --shadow-panel: 0 18px 48px rgba(0, 0, 0, 0.55);
+  --shadow-soft: 0 6px 20px rgba(0, 0, 0, 0.35);
+
+  /* 对话与面板的底色。放在主题里是因为它属于观感 ——
+     浅色主题要把它换成奶油白，而布局不需要跟着动。 */
+  --surface-panel: linear-gradient(180deg, rgba(26, 21, 18, 0.94), rgba(16, 13, 11, 0.97));
+  --surface-dialogue: linear-gradient(180deg, rgba(26, 21, 18, 0.94), rgba(16, 13, 11, 0.97));
+  /*
+   * 侧栏是最宽的一块面板，做得比对话框更实一点 ——
+   * 它后面就是场景，透太多会让文字和画面互相干扰。
+   */
+  --surface-side: linear-gradient(to left, rgba(10, 8, 6, 0.96) 72%, rgba(10, 8, 6, 0.9));
+  /* overlay 形态没有背板，只在底部垫一层渐变把台词托起来 */
+  --surface-overlay: linear-gradient(to top, rgba(10, 8, 6, 0.72), rgba(10, 8, 6, 0));
+  /* 不透明的小面板底色（物品栏、设置里的分区） */
+  --surface-solid: rgba(26, 21, 18, 0.92);
+  --surface-page: radial-gradient(circle at 50% 40%, var(--bg-2), var(--bg-0) 72%);
+
+  color-scheme: dark;
+}

@@ -1,4 +1,4 @@
-{
+﻿{
   "id": "hall",
   "title": "占位走廊",
   "bg": null,
@@ -6,10 +6,22 @@
   "aspect": 1.7777777777777777,
   "ground": {
     "corners": [
-      [0.12, 0.6],
-      [0.88, 0.6],
-      [0.96, 1.0],
-      [0.04, 1.0]
+      [
+        0.12,
+        0.6
+      ],
+      [
+        0.88,
+        0.6
+      ],
+      [
+        0.96,
+        1
+      ],
+      [
+        0.04,
+        1
+      ]
     ]
   },
   "walkable": [
@@ -31,7 +43,10 @@
     {
       "id": "hero",
       "renderer": "partRig",
-      "spawn": [0.5, 0.8],
+      "spawn": [
+        0.5,
+        0.8
+      ],
       "heightRatio": 0.2,
       "speed": 0.42,
       "facing": -1,
@@ -42,46 +57,127 @@
   ],
   "hotspots": [
     {
+      "id": "hs_lamp",
+      "shape": {
+        "type": "rect",
+        "x": 0.12,
+        "y": 0.12,
+        "w": 0.1,
+        "h": 0.24
+      },
+      "label": "壁灯",
+      "cursor": "use",
+      "visibleWhen": null,
+      "initialState": "off",
+      "interactions": [
+        {
+          "verb": "inspect",
+          "when": null,
+          "item": null,
+          "accepts": [],
+          "effects": [
+            {
+              "type": "object.patch",
+              "target": "@self",
+              "patch": {
+                "state": "on"
+              }
+            },
+            {
+              "type": "story.event",
+              "name": "lamp_lit"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "hs_mark",
-      "shape": { "type": "rect", "x": 0.4, "y": 0.32, "w": 0.2, "h": 0.2 },
+      "shape": {
+        "type": "rect",
+        "x": 0.4,
+        "y": 0.32,
+        "w": 0.2,
+        "h": 0.2
+      },
       "label": "墙上的印记",
       "cursor": "look",
       "visibleWhen": null,
-      "onClick": "look_hall_mark",
-      "approach": [0.5, 0.62],
+      "interactions": [
+        {
+          "verb": "inspect",
+          "action": "look_hall_mark"
+        },
+        {
+          "verb": "hold",
+          "action": "hold_hall_mark",
+          "emit": "hall_mark_held"
+        }
+      ],
+      "approach": [
+        0.5,
+        0.62
+      ],
       "acceptsItem": null,
       "onUse": null
     },
     {
       "id": "hs_minigame",
-      "shape": { "type": "rect", "x": 0.1, "y": 0.34, "w": 0.17, "h": 0.2 },
+      "shape": {
+        "type": "rect",
+        "x": 0.12,
+        "y": 0.34,
+        "w": 0.17,
+        "h": 0.2
+      },
       "label": "小游戏演示",
       "cursor": "use",
       "visibleWhen": null,
       "onClick": "demo_minigame",
-      "approach": [0.22, 0.6],
+      "approach": [
+        0.22,
+        0.6
+      ],
       "acceptsItem": null,
       "onUse": null
     },
     {
       "id": "hs_memory",
-      "shape": { "type": "rect", "x": 0.7, "y": 0.34, "w": 0.18, "h": 0.22 },
+      "shape": {
+        "type": "rect",
+        "x": 0.7,
+        "y": 0.34,
+        "w": 0.18,
+        "h": 0.22
+      },
       "label": "桌面特写（focus 模式）",
       "cursor": "look",
       "visibleWhen": null,
       "onClick": "go_memory_table",
-      "approach": [0.78, 0.62],
+      "approach": [
+        0.78,
+        0.62
+      ],
       "acceptsItem": null,
       "onUse": null
     },
     {
       "id": "hs_choice",
-      "shape": { "type": "rect", "x": 0.29, "y": 0.34, "w": 0.09, "h": 0.2 },
+      "shape": {
+        "type": "rect",
+        "x": 0.29,
+        "y": 0.34,
+        "w": 0.09,
+        "h": 0.2
+      },
       "label": "选项演示",
       "cursor": "talk",
       "visibleWhen": null,
       "onClick": "demo_choice",
-      "approach": [0.33, 0.62],
+      "approach": [
+        0.33,
+        0.62
+      ],
       "acceptsItem": null,
       "onUse": null
     }

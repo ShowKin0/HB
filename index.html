@@ -1,10 +1,30 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>hb</title>
+    <!--
+      viewport-fit=cover 是**必需**的，不是可选项。
+
+      没有它，iOS 会把布局视口缩到安全区之内，于是 env(safe-area-inset-*)
+      一律返回 0 —— 安全区代码看着写了，实际完全不起作用，
+      横屏时刘海会直接压住右上角的按钮。
+
+      user-scalable=no：这是个游戏，双指缩放会打乱场景坐标与手势判定。
+      需要放大看文字时，应该放大字号，而不是缩放页面。
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no"
+    />
+    <meta name="theme-color" content="#0d0b0a" />
+    <meta name="color-scheme" content="dark" />
+    <!-- 添加到主屏幕后全屏启动：横屏游戏不该被地址栏吃掉那几十像素 -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="HB" />
+    <title>HB</title>
   </head>
   <body>
     <div id="root"></div>

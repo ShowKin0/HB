@@ -14,22 +14,81 @@ export type { Pt }
 export type PlanePath = Pt[]
 
 /**
- * 线段是否全程可走。
+ * 线段与轴对齐矩形是否相交（slab 法）。
  *
- * 用细步长采样而不是解析求交：网格尺寸小，采样足够准，
- * 代码量却少一个数量级。步长取半格，保证不会跨过整格阻挡。
+ * 用精确求交而不是采样：采样步长再小也会漏掉"擦角"——线段只从一个阻挡格的
+ * 角上切过去，采样点全落在两侧的可走格里。这不是理论问题，实测在随机掩码上
+ * 有上千例"采样说通、实际穿格"的段。
  */
-export function lineOfSight(mask: WalkMask, a: Pt, b: Pt): boolean {
+function segmentHitsRect(
+  a: Pt,
+  b: Pt,
+  minU: number,
+  minV: number,
+  maxU: number,
+  maxV: number,
+): boolean {
   const dx = b[0] - a[0]
   const dy = b[1] - a[1]
-  const dist = Math.hypot(dx, dy)
-  if (dist === 0) return isPlaneWalkable(mask, a[0], a[1])
+  let t0 = 0
+  let t1 = 1
+  const axes: readonly [number, number, number, number][] = [
+    [a[0], dx, minU, maxU],
+    [a[1], dy, minV, maxV],
+  ]
+  for (const [origin, delta, lo, hi] of axes) {
+    if (Math.abs(delta) < 1e-12) {
+      // 该轴上不动：平行于这对边，落在区间外就不可能相交
+      if (origin < lo || origin > hi) return false
+      continue
+    }
+    let tA = (lo - origin) / delta
+    let tB = (hi - origin) / delta
+    if (tA > tB) [tA, tB] = [tB, tA]
+    t0 = Math.max(t0, tA)
+    t1 = Math.min(t1, tB)
+    if (t0 > t1) return false
+  }
+  return true
+}
 
-  const step = Math.min(1 / mask.cols, 1 / mask.rows) * 0.5
-  const n = Math.max(2, Math.ceil(dist / step))
-  for (let i = 0; i <= n; i++) {
-    const t = i / n
-    if (!isPlaneWalkable(mask, a[0] + dx * t, a[1] + dy * t)) return false
+/**
+ * 线段是否全程可走。
+ *
+ * **精确判据**：找出线段可能经过的格子（端点格子围成的矩形就够了，
+ * 线段不可能跑到它的包围盒之外），逐个对阻挡格做线段-矩形求交。
+ *
+ * 以前这里是"按半格步长采样"，注释声称"保证不会跨过整格阻挡" —— 那句话
+ * 不成立：短于一个采样步的擦角采不到。而这一个函数的松紧直接决定角色会
+ * 不会走进墙里，所以改成精确的。
+ */
+export function lineOfSight(mask: WalkMask, a: Pt, b: Pt): boolean {
+  if (!isPlaneWalkable(mask, a[0], a[1])) return false
+  if (!isPlaneWalkable(mask, b[0], b[1])) return false
+
+  const [c0, r0] = planeToCell(mask, a[0], a[1])
+  const [c1, r1] = planeToCell(mask, b[0], b[1])
+  const minC = Math.max(0, Math.min(c0, c1))
+  const maxC = Math.min(mask.cols - 1, Math.max(c0, c1))
+  const minR = Math.max(0, Math.min(r0, r1))
+  const maxR = Math.min(mask.rows - 1, Math.max(r0, r1))
+
+  for (let r = minR; r <= maxR; r++) {
+    for (let c = minC; c <= maxC; c++) {
+      if (isWalkable(mask, c, r)) continue
+      if (
+        segmentHitsRect(
+          a,
+          b,
+          c / mask.cols,
+          r / mask.rows,
+          (c + 1) / mask.cols,
+          (r + 1) / mask.rows,
+        )
+      ) {
+        return false
+      }
+    }
   }
   return true
 }
@@ -156,11 +215,34 @@ export function buildPath(
   const simplified = simplifyPath(mask, cells)
   if (simplified.length === 0) return null
 
-  // 两端替换为真实坐标：格子中心会让角色停在离点击点半格的地方
-  const startPoint: Pt = isPlaneWalkable(mask, from[0], from[1]) ? [from[0], from[1]] : simplified[0]
-  const endPoint: Pt = isPlaneWalkable(mask, to[0], to[1]) ? [to[0], to[1]] : cellCenter(mask, goalCell[0], goalCell[1])
+  /*
+   * 两端替换为真实坐标：格子中心会让角色停在离点击点半格的地方。
+   *
+   * ⚠️ 替换**会改变首尾两段**，所以必须重新做视线校验。
+   * 这里以前是"替换完直接拼"，于是最后一段可以横穿阻挡格 —— 在内容自带的
+   * hall 掩码上实测：最后一段 84% 落在阻挡格内，角色在墙里连续站了 14 帧。
+   * `simplifyPath` 校验的是**格子中心之间**的线段，换成真实点击坐标之后
+   * 那份校验就作废了。
+   *
+   * 现在的写法是"看不见就退回格子中心"：中心点之间的连通性由 A* 保证。
+   */
+  const inner = simplified.slice(1, -1)
+  const fallbackStart = simplified[0]
+  const fallbackEnd = simplified[simplified.length - 1]
 
-  const routed: PlanePath = [startPoint, ...simplified.slice(1, -1), endPoint]
+  const startNext: Pt = inner[0] ?? fallbackEnd
+  const startPoint: Pt =
+    isPlaneWalkable(mask, from[0], from[1]) && lineOfSight(mask, from, startNext)
+      ? [from[0], from[1]]
+      : fallbackStart
+
+  const endPrev: Pt = inner.length > 0 ? inner[inner.length - 1] : startPoint
+  const endPoint: Pt =
+    isPlaneWalkable(mask, to[0], to[1]) && lineOfSight(mask, endPrev, to)
+      ? [to[0], to[1]]
+      : cellCenter(mask, goalCell[0], goalCell[1])
+
+  const routed: PlanePath = [startPoint, ...inner, endPoint]
   const smoothed = roundCorners(mask, dedupe(routed), options.maxRadius ?? 0.06, options.samples ?? 8)
   return dedupe(smoothed)
 }

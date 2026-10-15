@@ -22,6 +22,7 @@ export function Toasts(): React.ReactElement | null {
       {toasts.map((toast) => (
         <div
           key={toast.id}
+          data-toast
           className={`${styles.toast} ${toast.level === 'error' ? styles.toastError : ''}`}
           onClick={() => dismiss(toast.id)}
         >

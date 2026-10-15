@@ -30,7 +30,7 @@ export interface InteractionContext {
   warn?(message: string): void
 }
 
-export type IntentKind = 'inspect' | 'use' | 'drag'
+export type IntentKind = 'inspect' | 'use' | 'drag' | 'hold'
 
 export interface InteractionIntent {
   kind: IntentKind
@@ -75,16 +75,20 @@ function splitImplemented(
 }
 
 /**
- * 解析一次点击。
+ * 解析一次点击 / 长按。
  *
  * 判定顺序（同一动词内部按声明顺序，作者可以靠排列控制优先级）：
- *   1. 手上有物品，且物件有匹配的 use 交互 → use
- *   2. 否则 → inspect
+ *   tap  —— 1. 手上有物品且物件有匹配的 use → use；2. 否则 → inspect
+ *   hold —— 只匹配 hold 交互
  *
  * 如果匹配到了交互但条件不成立，返回 condition-failed 而不是默默什么都没发生 ——
  * 上层可以据此给出"现在还不能这么做"的反馈。
  */
-export function resolveClick(hotspot: Hotspot, ctx: InteractionContext): InteractionResolution {
+export function resolveClick(
+  hotspot: Hotspot,
+  ctx: InteractionContext,
+  gesture: 'tap' | 'hold' = 'tap',
+): InteractionResolution {
   const all = resolveInteractions(hotspot)
   if (all.length === 0) return { intent: null, failure: 'no-interaction' }
 
@@ -93,10 +97,22 @@ export function resolveClick(hotspot: Hotspot, ctx: InteractionContext): Interac
 
   let sawConditionFailed = false
 
+  // ── 长按：只认 hold ──────────────────────────────────────
+  if (gesture === 'hold') {
+    for (const interaction of interactions) {
+      if (interaction.verb !== 'hold') continue
+      if (conditionPasses(interaction, ctx)) {
+        return { intent: { kind: 'hold', target: hotspot, interaction }, failure: null }
+      }
+      sawConditionFailed = true
+    }
+    return { intent: null, failure: sawConditionFailed ? 'condition-failed' : 'no-interaction' }
+  }
+
   // ── 1. 用物品 ────────────────────────────────────────────
   if (ctx.selectedItem) {
-    const use = interactions.find((i) => i.verb === 'use' && i.item === ctx.selectedItem)
-    if (use) {
+    for (const use of interactions) {
+      if (use.verb !== 'use' || use.item !== ctx.selectedItem) continue
       if (conditionPasses(use, ctx)) {
         return { intent: { kind: 'use', target: hotspot, interaction: use }, failure: null }
       }

@@ -1,4 +1,5 @@
 import { parseDirective, parseDirectiveArgs, type RawDirective } from '../../schema/directive.rules.ts'
+import { isTaskCancelled } from '../task.ts'
 
 /**
  * 演出指令注册表。
@@ -66,6 +67,9 @@ export async function applyDirectives(
     try {
       await handler(parsed.value, parseDirectiveArgs(parsed.value), ctx)
     } catch (error) {
+      // 取消不是故障：重开 / 读档 / 切场景会中止在飞的指令，
+      // 这里必须让它冒泡上去，而不是记一条日志然后继续往下演。
+      if (isTaskCancelled(error)) throw error
       ctx.log(`指令 "${parsed.name}" 执行失败：${(error as Error).message}`)
     }
   }

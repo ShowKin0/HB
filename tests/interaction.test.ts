@@ -17,6 +17,16 @@ import {
 import { resolveObjectState } from '../src/engine/interaction/events.ts'
 import { animOffset } from '../src/engine/scene/runtime.ts'
 
+describe('多 use 条件分支', () => {
+  it('第一条条件不成立时继续寻找同物品的可用交互', () => {
+    const hotspot = makeHotspot({ interactions: [
+      { verb: 'use', item: 'key', when: 'locked', action: 'unlock' },
+      { verb: 'use', item: 'key', when: 'opened', action: 'inspect_open' },
+    ] })
+    expect(resolveClick(hotspot, { selectedItem: 'key', evaluate: (name) => name === 'opened' }).intent?.interaction.action).toBe('inspect_open')
+  })
+})
+
 /**
  * 交互层。
  *
@@ -44,6 +54,7 @@ function makeInteraction(partial: Partial<Interaction> = {}): Interaction {
     setVisible: null,
     emit: null,
     sfx: null,
+    effects: [],
     ...partial,
   }
 }
@@ -116,11 +127,50 @@ describe('resolveClick', () => {
 
   it('未实现的动词会告警且不命中', () => {
     const warn = vi.fn()
-    const hs = makeHotspot({ interactions: [makeInteraction({ verb: 'hold', action: 'hold_it' })] })
+    const hs = makeHotspot({ interactions: [makeInteraction({ verb: 'sequence', action: 'seq' })] })
     const result = resolveClick(hs, { ...ctxWith([]), warn })
     expect(result.intent).toBeNull()
     expect(result.failure).toBe('unimplemented')
     expect(warn).toHaveBeenCalledOnce()
+  })
+
+  it('长按只匹配 hold 交互，不会误触发 inspect', () => {
+    const hs = makeHotspot({
+      interactions: [
+        makeInteraction({ verb: 'inspect', action: 'look' }),
+        makeInteraction({ verb: 'hold', action: 'open' }),
+      ],
+    })
+    expect(resolveClick(hs, ctxWith([]), 'tap').intent?.interaction.action).toBe('look')
+
+    const hold = resolveClick(hs, ctxWith([]), 'hold')
+    expect(hold.intent?.kind).toBe('hold')
+    expect(hold.intent?.interaction.action).toBe('open')
+  })
+
+  it('没有 hold 交互时，长按不命中任何东西', () => {
+    const hs = makeHotspot({ interactions: [makeInteraction({ verb: 'inspect', action: 'look' })] })
+    expect(resolveClick(hs, ctxWith([]), 'hold').failure).toBe('no-interaction')
+    expect(resolveClick(hs, ctxWith([]), 'tap').intent?.interaction.action).toBe('look')
+  })
+
+  it('长按也会走 when 条件', () => {
+    const hs = makeHotspot({
+      interactions: [makeInteraction({ verb: 'hold', when: 'can_open', action: 'open' })],
+    })
+    expect(resolveClick(hs, ctxWith([]), 'hold').failure).toBe('condition-failed')
+    expect(resolveClick(hs, ctxWith(['can_open']), 'hold').intent?.interaction.action).toBe('open')
+  })
+
+  it('长按时手上的物品不参与匹配', () => {
+    const hs = makeHotspot({
+      interactions: [
+        makeInteraction({ verb: 'use', item: 'item_key', action: 'unlock' }),
+        makeInteraction({ verb: 'hold', action: 'open' }),
+      ],
+    })
+    // 拿着钥匙长按：应当走 hold，而不是 use
+    expect(resolveClick(hs, ctxWith([], 'item_key'), 'hold').intent?.interaction.action).toBe('open')
   })
 
   it('没有交互的物件返回 no-interaction', () => {

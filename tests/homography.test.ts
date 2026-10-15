@@ -128,6 +128,21 @@ describe('invert', () => {
     close(x[1], 0.73, 9)
   })
 
+  it('逆矩阵的 m8 为 0 时仍可逆（按任意非零尺度表示）', () => {
+    const corners: readonly [Pt, Pt, Pt, Pt] = [[0, 0.2], [0.2, 0.2], [1, 1], [0, 1]]
+    const h = solveHomography(corners)
+    expect(h).not.toBeNull()
+    const inv = invert(h!)
+    expect(inv).not.toBeNull()
+    expect(inv!.m[8]).toBe(0)
+
+    for (const [u, v] of [[0.1, 0.2], [0.5, 0.5], [0.9, 0.8]]) {
+      const back = project(inv!, ...project(h!, u, v))
+      close(back[0], u, 8)
+      close(back[1], v, 8)
+    }
+  })
+
   it('恒等矩阵的逆是自身', () => {
     const inv = invert(identityHomography())
     expect(inv).not.toBeNull()

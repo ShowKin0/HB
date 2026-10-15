@@ -19,20 +19,20 @@ export const MaskRowSchema = z.string().regex(/^[.#]+$/, '可行走掩码行只�
 
 /** 热点与出口的判定形状。坐标一律归一化到场景空间。 */
 export const ShapeSchema = z.discriminatedUnion('type', [
-  z.object({
+  z.strictObject({
     type: z.literal('rect'),
     x: NormSchema,
     y: NormSchema,
     w: NormSchema,
     h: NormSchema,
   }),
-  z.object({
+  z.strictObject({
     type: z.literal('circle'),
     cx: NormSchema,
     cy: NormSchema,
     r: NormSchema,
   }),
-  z.object({
+  z.strictObject({
     type: z.literal('poly'),
     points: z.array(Vec2Schema).min(3, '多边形至少需要 3 个顶点'),
   }),

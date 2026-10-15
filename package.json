@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "npm run ink:build && vite",
-    "build": "npm run content:check && npm run ink:build && tsc -b && vite build",
+    "build": "npm run content:check && npm run ink:build && tsc -b --force && vite build && npm run bundle:check",
+    "bundle:check": "node scripts/bundle-check.ts",
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run",

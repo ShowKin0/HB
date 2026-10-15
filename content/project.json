@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "startScene": "start",
+  "capabilities": [
+    "story.ink",
+    "interaction.tap",
+    "interaction.hold",
+    "interaction.drag",
+    "audio",
+    "minigame",
+    "inventory",
+    "actor.walk"
+  ],
+  "saveCompatibility": "1",
+  "mobile": {
+    "orientation": "landscape",
+    "sceneFit": "cover",
+    "maxDpr": 2
+  },
+  "layout": {
+    "dialogue": {
+      "landscape": "overlay",
+      "portrait": "bottom",
+      "reserveSceneSpace": false,
+      "pauseWorldInput": false
+    }
+  },
+  "minigame": {
+    "skipAfter": 3
+  },
+  "theme": "neutral"
+}

@@ -81,16 +81,47 @@ async function screenOf(page: Page, u: number, v: number): Promise<{ x: number; 
 }
 
 /** 场景空间坐标 → 页面坐标，用于点热点。 */
-async function screenOfScene(page: Page, x: number, y: number): Promise<{ x: number; y: number }> {
-  return page.evaluate(
-    ([sx, sy]) => {
-      const game = (window as unknown as {
-        __HB__: { viewport: { x: number; y: number; w: number; h: number } }
-      }).__HB__
-      return { x: game.viewport.x + (sx as number) * game.viewport.w, y: game.viewport.y + (sy as number) * game.viewport.h }
-    },
-    [x, y],
-  )
+/**
+ * 点某个物件：**位置问引擎要**，不写死场景坐标。
+ *
+ * 写死坐标这件事在这次会话里已经翻车三次了：改 sceneFit、改布局形态、
+ * 把热点收进安全区，每一次都让一批用例静默点空。热点在哪是内容的事，
+ * 用例只需要知道"我要点书架"。
+ */
+async function clickHotspot(page: Page, id: string, dismissFirst = true): Promise<void> {
+  if (dismissFirst) await dismissDialogue(page)
+  const point = await page.evaluate((hotspotId) => {
+    const game = (window as unknown as {
+      __HB__: {
+        viewport: { x: number; y: number; w: number; h: number }
+        sceneRuntime: {
+          scene: {
+            hotspots: { id: string; shape: Record<string, number | string> }[]
+            exits: { to: string; shape: Record<string, number | string> }[]
+          }
+        } | null
+      }
+    }).__HB__
+    const vp = game.viewport
+    const scene = game.sceneRuntime?.scene
+    // 先找热点，再找出口（出口按目标场景 id 指代）
+    const shape =
+      scene?.hotspots.find((h) => h.id === hotspotId)?.shape ??
+      scene?.exits.find((e) => e.to === hotspotId)?.shape
+    if (!shape) return null
+    let u = 0.5
+    let v = 0.5
+    if (shape.type === 'rect') {
+      u = Number(shape.x) + Number(shape.w) / 2
+      v = Number(shape.y) + Number(shape.h) / 2
+    } else if (shape.type === 'circle') {
+      u = Number(shape.cx)
+      v = Number(shape.cy)
+    }
+    return { x: vp.x + u * vp.w, y: vp.y + v * vp.h }
+  }, id)
+  if (!point) throw new Error(`场景里没有物件 ${id}`)
+  await page.mouse.click(point.x, point.y)
 }
 
 /** 反复点击直到对话框收起。注意：有台词待推进时，点击优先推进而不是触发热点。 */
@@ -142,7 +173,28 @@ test.describe('点哪走哪', () => {
     await boot(page)
     const before = await probe(page)
 
-    const target = { u: 0.2, v: 0.3 }
+    const target = await page.evaluate(() => {
+      const game = (window as unknown as { __HB__: { sceneRuntime: {
+        actors: { u: number; v: number }[]
+        mask: { cols: number; rows: number; cells: Uint8Array }
+        projectPlane(u: number, v: number): [number, number]
+        canWalkAt(x: number, y: number): boolean
+        hotspotAt(x: number, y: number): unknown
+        exitAt(x: number, y: number): unknown
+      } } }).__HB__
+      const runtime = game.sceneRuntime
+      const actor = runtime.actors[0]
+      for (let row = 0; row < runtime.mask.rows; row++) {
+        for (let col = 0; col < runtime.mask.cols; col++) {
+          const u = (col + 0.5) / runtime.mask.cols
+          const v = (row + 0.5) / runtime.mask.rows
+          const point = runtime.projectPlane(u, v)
+          if (Math.hypot(u - actor.u, v - actor.v) < 0.15) continue
+          if (runtime.canWalkAt(...point) && !runtime.hotspotAt(...point) && !runtime.exitAt(...point)) return { u, v }
+        }
+      }
+      throw new Error('场景没有可见可走且不被热点覆盖的测试目标')
+    })
     await clickGround(page, target.u, target.v)
 
     await expect.poll(async () => (await probe(page)).speed, { timeout: 5000 }).toBeGreaterThan(0.05)
@@ -219,20 +271,39 @@ test.describe('热点与剧情', () => {
     await boot(page)
 
     // 书架热点 rect(0.04, 0.26, 0.19, 0.30) 的中心
-    const point = await screenOfScene(page, 0.135, 0.41)
-    await page.mouse.click(point.x, point.y)
+    await clickHotspot(page, 'hs_shelf')
 
     await expect(page.locator('[role="log"]')).toBeVisible({ timeout: 25_000 })
     await expect(page.locator('[role="log"]')).toContainText('书架')
 
-    // 对话框必须贴在视口底部且大致居中 —— 光断言"可见"会漏掉
-    // 它掉进 flex 流被顶到页面左上角这类布局事故
+    /*
+     * 位置断言必须按方向分支 —— 两种形态的契约本来就不同。
+     * 光断言"可见"会漏掉它掉进 flex 流被顶到页面左上角这类布局事故，
+     * 所以两种形态都得钉一个明确的位置。
+     */
     const box = await page.locator('[role="log"]').boundingBox()
     const viewport = page.viewportSize()!
     expect(box).not.toBeNull()
-    expect(box!.y + box!.height).toBeGreaterThan(viewport.height * 0.8)
-    const centerOffset = Math.abs(box!.x + box!.width / 2 - viewport.width / 2)
-    expect(centerOffset).toBeLessThan(4)
+    const sideLayout = (await page.locator('[data-dialogue]').getAttribute('data-dialogue')) === 'side'
+    if (sideLayout) {
+      /*
+       * 侧栏形态：对话是右侧通栏面板。
+       * 量的是**面板** [data-dialogue-band]，不是里面的文字块 ——
+       * 横屏下面板才是有背景、有边界的那个定位元素，文字块只裹着文字。
+       */
+      const panel = (await page.locator('[data-dialogue-band]').boundingBox())!
+      expect(panel.x).toBeGreaterThan(viewport.width * 0.5)
+      expect(panel.y).toBeLessThan(4)
+      expect(panel.height).toBeGreaterThan(viewport.height * 0.9)
+      // 文字落在面板里，没跑到场景那边去
+      expect(box!.x).toBeGreaterThanOrEqual(panel.x - 1)
+      expect(box!.y).toBeLessThan(panel.y + panel.height * 0.5)
+    } else {
+      // 竖屏：贴底居中
+      expect(box!.y + box!.height).toBeGreaterThan(viewport.height * 0.8)
+      const centerOffset = Math.abs(box!.x + box!.width / 2 - viewport.width / 2)
+      expect(centerOffset).toBeLessThan(4)
+    }
 
     await page.mouse.click(viewport.width / 2, viewport.height / 2)
     await expect(page.locator('[role="log"]')).toBeHidden({ timeout: 10_000 })
@@ -248,12 +319,26 @@ test.describe('热点与剧情', () => {
             ink: { evaluate(name: string): boolean }
             sceneRuntime: {
               hotspotAt: (x: number, y: number, visible: (h: { id: string }) => boolean) => { id?: string } | null
-              scene: { hotspots: { id: string; visibleWhen: string | null }[] }
+              scene: {
+                hotspots: {
+                  id: string
+                  visibleWhen: string | null
+                  shape: Record<string, number | string>
+                }[]
+              }
             }
           }
         }).__HB__
         const runtime = game.sceneRuntime
-        const hit = runtime.hotspotAt(0.135, 0.41, (h) => {
+        /*
+         * 探测点用**热点自己的中心**，不写死坐标 —— 热点位置是内容的事，
+         * 会随安全区调整、素材替换而变。这里只关心"钥匙现在在不在"。
+         */
+        const shape = runtime.scene.hotspots.find((item) => item.id === 'hs_key')?.shape
+        if (!shape) return false
+        const u = shape.type === 'circle' ? Number(shape.cx) : Number(shape.x) + Number(shape.w) / 2
+        const v = shape.type === 'circle' ? Number(shape.cy) : Number(shape.y) + Number(shape.h) / 2
+        const hit = runtime.hotspotAt(u, v, (h) => {
           const spec = runtime.scene.hotspots.find((item) => item.id === h.id)
           return spec?.visibleWhen ? game.ink.evaluate(spec.visibleWhen) : true
         })
@@ -263,8 +348,7 @@ test.describe('热点与剧情', () => {
     expect(await keyVisible()).toBe(false)
 
     // 查看书架
-    const shelf = await screenOfScene(page, 0.135, 0.41)
-    await page.mouse.click(shelf.x, shelf.y)
+    await clickHotspot(page, 'hs_shelf')
     await expect(page.locator('[role="log"]')).toBeVisible({ timeout: 25_000 })
 
     const viewport = page.viewportSize()!
@@ -285,30 +369,25 @@ test.describe('完整链路', () => {
         () => (window as unknown as { __HB__: { sceneRuntime: { scene: { id: string } } } }).__HB__.sceneRuntime.scene.id,
       )
 
-    const clickScene = async (x: number, y: number): Promise<void> => {
-      const point = await screenOfScene(page, x, y)
-      await page.mouse.click(point.x, point.y)
-    }
-
     // 1. 查看书架 → 钥匙条件变为可见
-    await clickScene(0.135, 0.41)
+    await clickHotspot(page, 'hs_shelf')
     await expect(page.locator('[role="log"]')).toContainText('钥匙', { timeout: 25_000 })
     await dismissDialogue(page)
 
-    // 2. 拿钥匙（此时钥匙热点压在书架热点之上）
-    await clickScene(0.135, 0.41)
+    // 2. 拿钥匙
+    await clickHotspot(page, 'hs_key')
     await expect(page.locator('[role="log"]')).toBeVisible({ timeout: 25_000 })
     await dismissDialogue(page)
     await expect(page.getByRole('listitem')).toHaveCount(1, { timeout: 10_000 })
 
     // 3. 选中钥匙，再点门 → 走"用物品"分支
     await page.getByRole('listitem').click()
-    await clickScene(0.83, 0.4)
+    await clickHotspot(page, 'hs_door')
     await expect(page.locator('[role="log"]')).toContainText('锁开了', { timeout: 25_000 })
     await dismissDialogue(page)
 
     // 4. 点出口 → go_hall 的旁白先出现，场景尚未切换
-    await clickScene(0.95, 0.78)
+    await clickHotspot(page, 'go_hall')
     await expect(page.locator('[role="log"]')).toContainText('走廊', { timeout: 25_000 })
     expect(await sceneId()).toBe('start')
 
@@ -366,29 +445,52 @@ test.describe('布局', () => {
         }
       }).__HB__
       const placement = game.sceneRuntime.actorPlacement(game.sceneRuntime.actors[0])
-      const band = document.querySelector('[data-dialogue-band]')
+      const band = document.querySelector('[data-dialogue-band]')?.getBoundingClientRect()
       return {
         feetY: game.viewport.y + placement.y * game.viewport.h,
-        bandTop: band ? band.getBoundingClientRect().top : Number.POSITIVE_INFINITY,
+        sceneRight: game.viewport.x + game.viewport.w,
+        sceneBottom: game.viewport.y + game.viewport.h,
+        bandTop: band ? band.top : null,
+        bandLeft: band ? band.left : null,
       }
     })
 
-    // 场景只在对话框之上的区域里 letterbox，所以角色的脚必然落在预留区之上
-    expect(geometry.feetY).toBeLessThanOrEqual(geometry.bandTop + 1)
+    if (geometry.bandLeft !== null && geometry.bandLeft >= geometry.sceneRight - 2) {
+      /*
+       * 横屏：对话在右侧面板。
+       * 契约不是"脚在对话框上面"，而是**场景区整体不伸到面板底下** ——
+       * 那样角色无论站在场景哪里都不可能被盖住，比逐点比较更强。
+       */
+      expect(geometry.sceneRight).toBeLessThanOrEqual(geometry.bandLeft + 1)
+      expect(geometry.feetY).toBeLessThanOrEqual(geometry.sceneBottom + 1)
+    } else {
+      // 竖屏：场景只在对话框之上的区域里 letterbox，脚必然落在预留区之上
+      expect(geometry.bandTop).not.toBeNull()
+      expect(geometry.feetY).toBeLessThanOrEqual((geometry.bandTop as number) + 1)
+    }
   })
 
   test('对话框贴底居中，且长台词不被裁掉', async ({ page }) => {
     await boot(page)
 
-    const point = await screenOfScene(page, 0.135, 0.41)
-    await page.mouse.click(point.x, point.y)
+    await clickHotspot(page, 'hs_shelf')
     const log = page.locator('[role="log"]')
     await expect(log).toBeVisible({ timeout: 25_000 })
 
     const viewport = page.viewportSize()!
     const box = (await log.boundingBox())!
-    expect(box.y + box.height).toBeGreaterThan(viewport.height * 0.8)
-    expect(Math.abs(box.x + box.width / 2 - viewport.width / 2)).toBeLessThan(4)
+    const sideLayout = (await page.locator('[data-dialogue]').getAttribute('data-dialogue')) === 'side'
+    if (sideLayout) {
+      // 侧栏形态：面板纵向铺满；文字块本身只裹文字，位置靠上
+      const panel = (await page.locator('[data-dialogue-band]').boundingBox())!
+      expect(panel.x).toBeGreaterThan(viewport.width * 0.5)
+      expect(panel.height).toBeGreaterThan(viewport.height * 0.9)
+      expect(box.y).toBeLessThan(panel.y + panel.height * 0.5)
+      expect(box.x).toBeGreaterThanOrEqual(panel.x - 1)
+    } else {
+      expect(box.y + box.height).toBeGreaterThan(viewport.height * 0.8)
+      expect(Math.abs(box.x + box.width / 2 - viewport.width / 2)).toBeLessThan(4)
+    }
 
     // 文本没有被裁：内容高度不能超过盒子可视高度
     const clipped = await log.evaluate((el) => el.scrollHeight > el.clientHeight + 1)

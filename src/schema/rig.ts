@@ -23,9 +23,20 @@ export const SpriteAtlasSchema = z.object({
   frameHeight: z.number().int().positive(),
   /** 脚底在单帧内的位置，0..1。 */
   anchorX: z.number().min(0).max(1).default(0.5),
-  anchorY: z.number().min(0).max(1).default(1),
+  /**
+   * 脚底在单帧内的**纵向**位置。
+   *
+   * 它同时充当缩放系数（`高度 = 1 / anchorY` 个身高单位），所以**必须大于 0**：
+   * 以前这里是 `.min(0)`，`anchorY: 0` 能通过校验，运行时把精灵放大到
+   * 1e6 倍身高 —— 画面直接空白，而且看不出是这一项造成的。
+   */
+  anchorY: z.number().positive().max(1).default(1),
   clips: z.record(z.string(), z.array(z.number().int().nonnegative()).min(1)),
 })
+/**
+ * 这里推出来的类型与 rig.rules.ts 的 `SpriteAtlasFile` 是同一份契约
+ * （前者给构建期，后者给运行时）。有一条测试守着它们字段一致。
+ */
 export type SpriteAtlasFile = z.infer<typeof SpriteAtlasSchema>
 
 /** 部件图集里的单个部件。字段与 rig.rules.ts 的 PartDef 一一对应。 */
@@ -33,7 +44,13 @@ export const PartDefSchema = z.object({
   image: z.string().min(1),
   /** 关节在该部件图内的位置，0..1。 */
   pivot: z.tuple([z.number(), z.number()]).default([0.5, 1]),
-  /** 关节在角色局部空间的位置，单位是身高比例，脚底为 (0,0)，y 向下。 */
+  /**
+   * 相对关节的额外偏移，单位是身高比例（脚底为 (0,0)，y 向下）。
+   *
+   * 注意是**相对关节**的微调，不是关节本身的位置：`pivot` 负责把图片上的
+   * 关节对准原点，这个再把它挪一点。决定四肢摆在哪的是骨架 RIG。
+   * （这句注释以前写的是"关节在角色局部空间的位置"，和实现不符。）
+   */
   offset: z.tuple([z.number(), z.number()]),
   /** 部件在图中的显示高度，单位是身高比例。 */
   height: z.number().positive(),

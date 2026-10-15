@@ -27,6 +27,30 @@ export const PART_NAMES = [
 
 export type PartName = (typeof PART_NAMES)[number]
 
+/**
+ * 逐帧精灵表的运行时契约。
+ *
+ * 和 rig.ts 里的 `SpriteAtlasSchema` 一一对应，分开的理由同 PART_NAMES：
+ * 渲染器要用它，而 rig.ts 拖着一个 Zod 依赖。
+ */
+export interface SpriteAtlas {
+  /** 帧在图像上的排列：行优先，每行 columns 帧。 */
+  columns: number
+  frameWidth: number
+  frameHeight: number
+  /** 脚底在单帧内的位置，0..1。默认水平居中、贴底。 */
+  anchorX?: number
+  /** **必须大于 0**：它同时是"脚底以上占帧高多少"和缩放系数，取 0 会算出天文尺寸。 */
+  anchorY?: number
+  /** 键形如 "walk:E"、"idle:S"。 */
+  clips: Record<string, number[]>
+}
+
+/** 精灵表图集文件：图集本体 + 它引用的那张图。 */
+export interface SpriteAtlasFile extends SpriteAtlas {
+  image: string
+}
+
 /** 单个部件的图集条目。 */
 export interface PartDef {
   /** 图片路径，相对 public/assets。 */

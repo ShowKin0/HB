@@ -15,7 +15,7 @@ import type { Pt } from '../engine/math.ts'
 
 export type { Pt }
 
-/** 3x3 行主序矩阵，m[8] 恒为 1。 */
+/** 3x3 行主序矩阵；m[8] 通常归一为 1，但逆矩阵可采用任意非零尺度。 */
 export interface Homography {
   readonly m: readonly [number, number, number, number, number, number, number, number, number]
 }
@@ -29,6 +29,15 @@ export const UNIT_SQUARE: readonly [Pt, Pt, Pt, Pt] = [
 ]
 
 const EPS = 1e-12
+
+/**
+ * 地面平面坐标的合理量级上限。
+ *
+ * 平面本身只有 [0,1]²；点击落到四边形之外时算出 -0.5 / 1.7 都正常，
+ * 但贴近平视线时会发散到 1e8。超过这个数就只可能是数值发散，
+ * 当作"没解出来"处理，比交给调用方一个天文数字安全。
+ */
+const PLANE_SANITY = 64
 
 /** 高斯-约当消元解线性方程组，奇异时返回 null。 */
 function solveLinear(matrix: number[][], rhs: number[]): number[] | null {
@@ -95,11 +104,32 @@ export function project(h: Homography, u: number, v: number): [number, number] {
   return [(m[0] * u + m[1] * v + m[2]) / w, (m[3] * u + m[4] * v + m[5]) / w]
 }
 
-/** 场景空间坐标 → 地面平面坐标。点在消失线上时返回 null。 */
+/**
+ * 场景空间坐标 → 地面平面坐标。**点在消失线上（或贴得极近）时返回 null。**
+ *
+ * 以前这里直接转手给 `project`，而 `project` 在 `|w| < EPS` 时回退 `[0, 0]` ——
+ * 于是消失线上的点会解成"地面左上角"，调用方那句 `if (!plane) return` 成了
+ * 死代码，玩家点一下就会被指使走到画面后左角；稍微偏离消失线则得到
+ * `v = -1.5e8` 这种失控坐标，同样没有任何提示。
+ *
+ * 这里自己做透视除法，就是为了能**如实报告失败**。
+ */
 export function unproject(h: Homography, x: number, y: number): [number, number] | null {
   const inv = invert(h)
   if (!inv) return null
-  return project(inv, x, y)
+  const m = inv.m
+  const w = m[6] * x + m[7] * y + m[8]
+  if (Math.abs(w) < EPS) return null
+  const u = (m[0] * x + m[1] * y + m[2]) / w
+  const v = (m[3] * x + m[4] * y + m[5]) / w
+  if (!Number.isFinite(u) || !Number.isFinite(v)) return null
+  /*
+   * 贴近平视线时结果会急剧发散（实测能到 1e8）。地面平面只有 [0,1]²，
+   * 稍微点歪出个 -0.5 / 1.7 是正常的，但量级到几十就只可能是发散 ——
+   * 那已经不是"点在哪儿"的问题了，交给调用方当没点到处理。
+   */
+  if (Math.abs(u) > PLANE_SANITY || Math.abs(v) > PLANE_SANITY) return null
+  return [u, v]
 }
 
 /**
@@ -127,43 +157,41 @@ export function localScale(h: Homography, u: number, v: number): number {
 
 /** 求逆矩阵。奇异时返回 null。 */
 export function invert(h: Homography): Homography | null {
-  const m = h.m
-  const a = m[0]
-  const b = m[1]
-  const c = m[2]
-  const d = m[3]
-  const e = m[4]
-  const f = m[5]
-  const g = m[6]
-  const hh = m[7]
-  const i = m[8]
+  const source = h.m
+  if (source.some((value) => !Number.isFinite(value))) return null
+  const inputScale = Math.max(...source.map(Math.abs))
+  if (!(inputScale > 0) || !Number.isFinite(inputScale)) return null
+
+  // A homography is unchanged by a common non-zero scale. Normalize before
+  // forming cofactors so determinant checks are independent of its encoding.
+  const [a, b, c, d, e, f, g, hh, i] = source.map((value) => value / inputScale)
 
   const A = e * i - f * hh
   const B = -(d * i - f * g)
   const C = d * hh - e * g
-  const det = a * A + b * B + c * C
-  if (Math.abs(det) < EPS) return null
+  const determinant = a * A + b * B + c * C
+  if (!Number.isFinite(determinant) || Math.abs(determinant) < EPS) return null
 
-  const invDet = 1 / det
+  // The adjugate is projectively equivalent to the inverse (the omitted
+  // determinant is a common scalar). Unlike inverse normalization by m[8],
+  // max-coefficient normalization remains valid when that coefficient is 0.
   const out: [number, number, number, number, number, number, number, number, number] = [
-    A * invDet,
-    -(b * i - c * hh) * invDet,
-    (b * f - c * e) * invDet,
-    B * invDet,
-    (a * i - c * g) * invDet,
-    -(a * f - c * d) * invDet,
-    C * invDet,
-    -(a * hh - b * g) * invDet,
-    (a * e - b * d) * invDet,
+    A,
+    c * hh - b * i,
+    b * f - c * e,
+    B,
+    a * i - c * g,
+    c * d - a * f,
+    C,
+    b * g - a * hh,
+    a * e - b * d,
   ]
   if (out.some((value) => !Number.isFinite(value))) return null
 
-  // 归一化使 m[8] === 1，保持与 solveHomography 相同的表示
-  if (Math.abs(out[8]) < EPS) return null
-  const s = 1 / out[8]
-  // 把 -0 规整为 0，避免矩阵比较与序列化时出现无意义差异
+  const outputScale = Math.max(...out.map(Math.abs))
+  if (!(outputScale > 0) || !Number.isFinite(outputScale)) return null
   const normalized = out.map((value) => {
-    const scaled = value * s
+    const scaled = value / outputScale
     return scaled === 0 ? 0 : scaled
   })
   return { m: normalized as unknown as Homography['m'] }

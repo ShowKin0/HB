@@ -1,11 +1,137 @@
-# HB — 互动叙事游戏引擎
+﻿# HB — 面向手机浏览器的通用 2D 互动叙事引擎
 
-一个**内容无关**的点击式冒险引擎：引擎提供能力，剧情与素材由你后续填充。
-现在仓库里跑的是一份**占位内容**，只用来证明整条链路是通的。
+一个**内容无关**的引擎：内容负责声明"要发生什么"，引擎提供可调用的交互、
+演出、音频和存档能力。现在仓库里跑的是一份**占位内容**，只用来证明整条链路是通的。
 
-- **玩法**：点击地面让角色走过去、点物件触发剧情、轻解谜、小游戏插曲（小游戏容器已就位，具体玩法待实现）
-- **技术栈**：Vite 8 + React 19 + TypeScript · [ink](https://www.inklestudios.com/ink/)（剧情）· Canvas 2D（角色与场景）· Howler（音频）· Zod（内容契约）
+引擎不预设剧情、画风、时长或结局形式，也**不要求**所有游戏都用物品栏、
+角色寻路和小游戏 —— 这些是按项目声明加载的能力。
+
+- **玩法**：点击地面让角色走过去、点物件触发剧情、长按、拖放、轻解谜、小游戏插曲
+- **技术栈**：Vite 8 + React 19 + TypeScript · [ink](https://www.inklestudios.com/ink/)（剧情）· Canvas 2D（角色与场景）· Howler（音频）· Zod（仅构建期校验）
 - **部署**：Docker 多阶段构建 + nginx 静态托管
+
+---
+
+## 三个底座
+
+引擎的可靠性建立在这三件事上。它们都不依赖具体剧情或画风，所以先做。
+
+### 1. 输入仲裁（`src/engine/input/router.ts`）
+
+指针事件**不直接执行交互**。先过手势状态机，归约成"一次手势的一个结果"：
+
+```text
+idle → pressed → tap / holding / dragging → idle
+                  ↘ cancelled ↗
+```
+
+- `pointerdown` 只记录并给按压反馈，**不执行任何交互**
+- 移动超过 10 CSS px 才升级成拖动，同时撤销点击候选
+- 长按由**游戏循环**推进（不是 `setTimeout`），暂停时自然不误触发
+- 长按一旦触发，这次手势就归属长按了，不会再降级成拖动
+- `pointercancel` / 捕获丢失 / 切后台 / 转屏 / 弹面板 / 切场景 → 一律取消，**不产生成功结果**
+
+阈值一律用 **CSS 像素**。按场景比例算的话，同一段手指移动在不同手机上会得到
+不同结果 —— 手机上手感会飘。
+
+**输入归属**是分层的，高优先级在场时低优先级收不到输入：
+
+```text
+面板 / 小游戏  >  对话与选项  >  场景交互
+```
+
+所以"点一下推进对话"不会顺带把背后的场景热点也点了。
+
+⚠️ **指针捕获只在画布上开始的手势里启用。** 在 UI 元素上捕获会把后续的鼠标事件
+也重定向到捕获目标，子元素的 `onClick` 就永远不触发 —— 表现是"选项按钮点不动、
+物品栏选不中"，而且完全不报错。这个坑踩过一次。
+
+### 2. 可取消的运行时任务（`src/engine/task.ts`）
+
+所有异步动作（等待、加载素材、小游戏）都拿一个 `TaskContext`：
+
+```ts
+interface TaskContext {
+  signal: AbortSignal
+  sessionId: number
+  sceneId: string | null
+}
+```
+
+- 重开 / 读档会 `SessionScope.restart()`：**中止所有在飞任务并换一个会话号**
+- 写入引擎状态之前必须过 `scope.isCurrent(ctx)` —— 光看 `signal.aborted` 不够，
+  会话重启后 signal 是新的，旧任务却还记着旧会话号
+- 取消是 `TaskCancelled` 异常，**不是故障**：指令层让它冒泡，`drainStory` 静静收手
+- 切场景是**准备后提交**：所有 `await` 都在替换状态之前完成，不存在"runtime 是新的、
+  资源还是旧的"这种半截窗口
+
+**暂停用原因集合**（`hidden` / `panel` / `orientation` / `minigame`），
+只有全部解除才恢复 —— 否则"关掉设置面板"会错误地恢复一个仍在后台的游戏。
+
+### 3. 按声明加载的能力（`content/project.json`）
+
+```json
+{
+  "schemaVersion": 1,
+  "startScene": "start",
+  "capabilities": ["story.ink", "interaction.tap", "interaction.hold", "audio"],
+  "saveCompatibility": "1",
+  "mobile": { "orientation": "auto", "sceneFit": "contain", "maxDpr": 2 },
+  "minigame": { "skipAfter": 3 }
+}
+```
+
+- 未声明的能力不加载。内容里用到了却没声明 → **`content:check` 报 error 挡住构建**
+  （`interaction.*` / `minigame` / `story.ink`），其余给 warning
+- 依赖自动展开：声明 `interaction.hold` 会带上 `interaction.tap`
+- `saveCompatibility` 与内容指纹**分开**：换一张图会改变指纹，但那不该判定剧情存档不兼容
+
+---
+
+## 手机横屏优先
+
+这个引擎**以手机横屏为主要形态**：横屏是默认与设计基准，竖屏只做兼容。
+
+以 iPhone 14 横屏（844 × 346 CSS px，Safari 工具栏展开时的常见状态）为准：
+
+```text
+┌──────────────────────────────┬──────────────┐
+│  HUD                         │              │
+│                              │   对话面板    │
+│   场景区（letterbox）          │   台词居中    │
+│                              │   选项靠下    │
+└──────────────────────────────┴──────────────┘
+        591 × 346                     253 × 346
+```
+
+为什么是右侧面板，而不是底部对话框：
+
+| 方案 | 场景占屏 | 角色会被盖住吗 |
+|---|---|---|
+| 竖屏底部对话框（原方案） | **27%** | 否（场景让开 168px） |
+| 横屏底部浮层（走过的弯路） | 35% | **会** —— 浮层盖住角色能走到的最后 49px |
+| **横屏右侧面板（现方案）** | **67%** | 否，结构上不可能 |
+
+底部浮层看着省事，但在 346px 高的屏上无解：面板要 105px 才放得下两行字，
+场景又不肯让开那么多 —— 中间那段正好是角色能走到的区域。这条被
+「角色走到最前排不会被对话框盖住」的 E2E 当场抓住。
+
+几个必须知道的约定：
+
+- **`viewport-fit=cover` 不能删。** 少了它 iOS 会把布局视口缩进安全区，
+  `env(safe-area-inset-*)` 一律返回 0 —— 安全区代码看着写了，实际完全失效，
+  横屏时刘海会直接压住 HUD。
+- **安全区是四条边，不是上下两条。** 横屏刘海在左或右，`--safe-l` / `--safe-r`
+  都要用。
+- **布局的真相源在 CSS 变量里**（`--scene-inset` / `--scene-right-inset`），
+  JS 通过一个尺寸由变量决定的**探针元素**读取解析后的像素。
+  不要用 `getComputedStyle().getPropertyValue('--x')` —— 自定义属性返回的是
+  **未求值的 `calc(...)` 文本**，`parseFloat` 得到 NaN，右留白会悄悄变成 0。
+- **高度用 `dvh`，内边距不要用百分比。** CSS 的百分比内边距按包含块的
+  **宽度**解析；横屏下 `30%` 会算出 253px 而不是 104px，把文字顶到面板顶部。
+
+竖屏时会盖一层"请把手机横过来"并**暂停模拟**（`pauseState` 里是 `orientation`），
+避免玩家对着被压扁的布局乱点。
 
 ---
 
@@ -15,9 +141,14 @@
 npm install
 
 npm run dev          # 开发服务器，自动先编译剧本
-npm run build        # 生产构建（ink:build → tsc → vite build）
+npm run build        # 生产构建（content:check → ink:build → tsc -b → vite build → bundle:check）
 npm run preview      # 本地预览构建产物
 ```
+
+`build` 的最后一步 **`bundle:check`** 是一条硬约束：它扫描产物，一旦发现 Zod 被
+打进运行时包就**构建失败**。Zod 只该出现在构建期校验里 —— 这个坑踩过两次
+（`App.tsx` 静态引编辑器、`content/project.ts` 同时放 schema 和运行时函数），
+每次都是静默多背 24 kB，而且靠人看代码是查不出来的。
 
 开发模式下访问 **`/edit`** 进入场景编辑器。
 
@@ -30,6 +161,7 @@ npm run preview      # 本地预览构建产物
 | `npm run ink:build` | 编译 `content/story/*.ink` → `*.json` |
 | `npm run script:export` | 从剧本导出配音台词表 `content/voice-lines.csv` |
 | `npm run vo:check` | 检查配音缺了哪几句（缺失会降级成"只出文字"，不会崩） |
+| `npm run bundle:check` | 产物守卫：Zod 不得进运行时包；顺带报告各 chunk 体积 |
 | `npm run assets:manifest` | 生成素材清单并估算首包体积 |
 | `npm run img:optimize` | 把 `art-src/` 的原图压成 AVIF + WebP 放进 `public/assets/` |
 | `npm test` | 单元测试（单应变换、寻路、平滑、精灵表选帧） |
@@ -154,7 +286,73 @@ docker/              部署配置
 > **focus 场景不能有 `actors` 和 `ground`** —— schema 会直接拒绝。
 > 这不是限制，是防止你配了一个永远不生效的走位点。
 
-### 4. 物件与交互（从"热点"升级过来）
+### 4. 物件与交互（触发器 + 动作）
+
+一个物件可以挂**多条交互**。每条交互分成两层：
+
+```text
+触发器：玩家做了什么   →   tap / hold / use / drop
+动作  ：引擎要执行什么  →   effects 列表
+```
+
+两者正交，所以同一套动作可以被任何触发器复用。新格式直接写 `effects`：
+
+```json
+{
+  "id": "hs_lamp",
+  "shape": { "type": "rect", "x": 0.06, "y": 0.08, "w": 0.1, "h": 0.24 },
+  "initialState": "off",
+  "interactions": [
+    {
+      "verb": "inspect",
+      "effects": [
+        { "type": "object.patch", "target": "@self", "patch": { "state": "on" } },
+        { "type": "story.event", "name": "lamp_lit" }
+      ]
+    }
+  ]
+}
+```
+
+**关键约束：动作里没有 `story.knot` 时，整条交互完全不碰 ink。**
+纯物件操作（开抽屉、点灯、切状态）因此可以独立成立 —— 通用引擎不该要求
+每条交互都必须跳转 knot，也不该要求有剧情。
+
+可用的动作：
+
+| type | 作用 |
+|---|---|
+| `object.patch` | 改物件状态 / 可见性 / 局部进度。`target: "@self"` 指这条交互所属的物件 |
+| `story.knot` | 跳转 ink knot（**唯一**会碰剧情的动作） |
+| `story.event` | 给这次交互的事件起名，写进 `last_event` 并记进存档 |
+| `audio.sfx` | 播放音效 |
+| `item.award` | 把物品放进背包 |
+| `item.consume` | 把物品从背包移除 |
+
+⚠️ **"用完取消选中"和"从背包消耗"是分开的两件事。** 用了物品不等于消耗物品：
+选中态由引擎在 use/drop 之后自动清掉，而是否真的从背包里消失只由
+`item.consume` 决定。
+
+旧字段（`action` / `setState` / `setVisible` / `emit` / `sfx`）仍然可用，
+会被适配成等价的动作列表 —— **适配只做一次**，之后运行时只看 `effects`，
+新增动作类型时不用在每个入口再写一遍新旧分支。
+
+> 适配逻辑（`effectsFromLegacy` / `summarizeEffects`）由 Zod 路径与
+> `normalizeScene` 路径**共用**。各写一份的话，`tests/normalize.test.ts`
+> 的一致性断言立刻会报漂移 —— 这条测试确实抓到过一次。
+
+### 4.1 动词与触发方式
+
+| verb | 触发方式 |
+|---|---|
+| `inspect` | 点击 |
+| `use` | 手上拿着匹配 `item` 的物品时点击 |
+| `drag` | 把物品拖上去（`accepts` 列出接受的物品） |
+| `hold` | 长按（默认 500ms，由手势状态机判定） |
+| `sequence` | 已预留，引擎尚未实现 —— 写了会**明确报错**，不会静默失效 |
+
+
+### 4.2 完整物件字段
 
 一个物件可以挂**多条交互**，按动词 + 条件筛选，命中哪条走哪条：
 
@@ -495,8 +693,9 @@ phase += 2π · 走过距离 / 步幅
 ## 测试
 
 ```bash
-npm test                  # 129 项单测：单应变换、A*、路径平滑、精灵表选帧、部件图集、音频竞态、交互解析、存档迁移、场景规范化
-npm run test:e2e          # 78 项端到端（WebKit iPhone 13 + Chromium 桌面，生产构建）
+npm test                  # 172 项单测：单应变换、A*、路径平滑、精灵表选帧、部件图集、音频竞态、
+                          #   交互解析、存档迁移、场景规范化、手势状态机、任务取消、项目清单
+npm run test:e2e          # 118 项端到端（iPhone 14 横屏 + 竖屏引导 + 桌面，生产构建）
 npm run test:e2e:editor   # 8 项开发期检查（编辑器 + StrictMode 泄漏）
 ```
 
@@ -504,6 +703,9 @@ npm run test:e2e:editor   # 8 项开发期检查（编辑器 + StrictMode 泄漏
 相位不滑步、姿态平滑进出、转身、障碍吸附、物件触发、条件驱动、
 完整链路（查看→拿钥匙→用钥匙开门→出口切场景）、小游戏容器、
 布局（角色不被对话框盖住、台词不被裁）、性能、存档续玩。
+
+**横屏适配**另有 20 项专测：竖屏引导与暂停、场景不伸到面板底下、场景占屏比、
+四边安全区（用 CSS 变量模拟刘海）、面板留白、HUD 不压刘海。
 
 **交互层**另有 23 项专测：walk / focus 两种模式、物件状态切换与跨场景保持、
 同名角色不串位、物件隐藏后点不到、事件桥写入 `last_event`、拖放开门、

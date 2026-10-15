@@ -1,4 +1,4 @@
-import styles from './ui.module.css'
+﻿import styles from './ui.module.css'
 
 export interface HudProps {
   panel: string
@@ -19,7 +19,7 @@ export function Hud({
 }: HudProps): React.ReactElement {
   return (
     <>
-      <div className={styles.hud}>
+      <div className={styles.hud} data-hud>
         <button
           type="button"
           className={`${styles.hudButton} ${panel === 'saves' ? styles.hudButtonActive : ''}`}

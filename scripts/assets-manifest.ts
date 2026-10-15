@@ -11,7 +11,14 @@
  */
 import { stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { collectAssetRefs, loadScenes, scanAssets } from './lib/content.ts'
+import {
+  collectAssetRefs,
+  expandAssetDependencies,
+  loadProjectStartSceneId,
+  loadScenes,
+  scanAssets,
+  selectStartScene,
+} from './lib/content.ts'
 import { ASSETS_DIR, MANIFEST_FILE, rel } from './lib/project.ts'
 
 /** 首屏必须加载的素材：起始场景用到的东西。 */
@@ -37,19 +44,26 @@ const scenes = await loadScenes()
 const usedBy = new Map<string, string[]>()
 for (const loaded of scenes) {
   if (!loaded.scene) continue
-  for (const { ref } of collectAssetRefs(loaded.scene)) {
+  const dependencies = await expandAssetDependencies(collectAssetRefs(loaded.scene), assets)
+  for (const { ref } of dependencies) {
     const list = usedBy.get(ref)
-    if (list) list.push(loaded.scene.id)
-    else usedBy.set(ref, [loaded.scene.id])
+    if (list) {
+      if (!list.includes(loaded.scene.id)) list.push(loaded.scene.id)
+    } else {
+      usedBy.set(ref, [loaded.scene.id])
+    }
   }
 }
 
-// 与游戏本体保持一致的起始场景判定：优先 start.json，否则取文件名排序最小的
-const startEntry =
-  scenes.find((entry) => entry.scene && /(^|\/)start\.json$/.test(entry.file)) ?? scenes.find((entry) => entry.scene)
+// 与游戏本体保持一致：project.startScene、start.json、文件名排序首个依次回退。
+const configuredStartScene = await loadProjectStartSceneId()
+const startEntry = selectStartScene(scenes, configuredStartScene)
 const startSceneId = startEntry?.scene?.id ?? null
 const entryRefs = new Set<string>()
-if (startEntry?.scene) for (const { ref } of collectAssetRefs(startEntry.scene)) entryRefs.add(ref)
+if (startEntry?.scene) {
+  const dependencies = await expandAssetDependencies(collectAssetRefs(startEntry.scene), assets)
+  for (const { ref } of dependencies) entryRefs.add(ref)
+}
 
 const entries: Entry[] = []
 for (const file of [...assets].sort()) {

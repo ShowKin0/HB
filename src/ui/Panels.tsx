@@ -27,7 +27,7 @@ export function Panels({ game, onClose, onLoadSlot, onRestart }: PanelsProps): R
       }}
     >
       <div className={styles.panel} onClick={(event) => event.stopPropagation()}>
-        {panel === 'settings' ? <SettingsPanel game={game} /> : null}
+        {panel === 'settings' ? <SettingsPanel /> : null}
         {panel === 'saves' ? <SavesPanel game={game} onLoadSlot={onLoadSlot} onRestart={onRestart} /> : null}
         {panel === 'debug' ? <DebugPanel game={game} /> : null}
         {panel === 'credits' ? <CreditsPanel /> : null}
@@ -36,14 +36,11 @@ export function Panels({ game, onClose, onLoadSlot, onRestart }: PanelsProps): R
   )
 }
 
-function SettingsPanel({ game }: { game: Game | null }): React.ReactElement {
+function SettingsPanel(): React.ReactElement {
   const audio = useAudioSettings((state) => state.audio)
   const setAudio = useAudioSettings((state) => state.setAudio)
 
-  useEffect(() => {
-    game?.audio.setSettings(audio)
-  }, [audio, game])
-
+  // 同步交给 GameShell（它总是挂载）；面板这里只负责读写设置本身
   const slider = (
     key: 'master' | 'bgm' | 'sfx' | 'vo',
     label: string,
@@ -232,6 +229,21 @@ function DebugPanel({ game }: { game: Game | null }): React.ReactElement {
         <span className={styles.rowLabel}>缺失素材</span>
         <span className={styles.rowValue}>
           {debug && debug.missingAssets.length > 0 ? debug.missingAssets.join(', ') : '无'}
+        </span>
+      </div>
+      {/*
+        剧情标记（`# flag:` / `# unlock:`）。
+        它们一直会被写进存档并持久化，但此前**没有任何地方能看见** ——
+        作者写了标记，游戏里看不出有没有生效，也无从调试。
+      */}
+      <div className={styles.row}>
+        <span className={styles.rowLabel}>剧情标记</span>
+        <span className={styles.rowValue}>
+          {debug && Object.keys(debug.flags).length > 0
+            ? Object.entries(debug.flags)
+                .map(([key, value]) => `${key}=${String(value)}`)
+                .join(', ')
+            : '无'}
         </span>
       </div>
       <div className={styles.row}>

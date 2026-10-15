@@ -4,10 +4,12 @@ import type { Actor } from '../engine/actor/actor.ts'
 import type { DrawableObject, SceneRuntime } from '../engine/scene/runtime.ts'
 import type { Hotspot, SceneLayer } from '../schema/scene.ts'
 import type { Shape } from '../schema/common.ts'
+import { shapeBounds } from '../schema/safeArea.ts'
 import { isWalkable } from '../engine/nav/mask.ts'
 import type { FxState } from './fx.ts'
 import { shakeOffset } from './fx.ts'
 import type { CanvasStage } from './stage.ts'
+import type { Pt } from '../engine/math.ts'
 
 export interface DebugFlags {
   ground: boolean
@@ -32,8 +34,10 @@ export interface RenderSceneOptions {
   elapsed?: number
   /** 当前悬停的物件 id，用于高亮反馈。 */
   hoverId?: string | null
+  /** 按下中的物件 id。手机上没有 hover，按压反馈才是主要线索。 */
+  pressedId?: string | null
   /** 拖拽中的物品 id 与当前指针位置（场景空间），用于画"手上的东西"。 */
-  drag?: { itemId: string; label: string; point: [number, number]; overTarget: boolean } | null
+  drag?: { itemId: string; label: string; point: Pt; overTarget: boolean } | null
   /**
    * 求值物件的 visibleWhen。必须由上层提供（渲染层不该知道 ink 的存在）。
    *
@@ -239,6 +243,46 @@ function shapePath(ctx: CanvasRenderingContext2D, stage: CanvasStage, shape: Sha
 }
 
 /**
+ * 在物件旁边画一个小名牌。
+ *
+ * 位置由形状的包围盒推出，而不是跟着指针走：手机上没有 hover，
+ * 用包围盒意味着"按下去"和"鼠标悬停"落在同一处，两边行为一致。
+ * 包围盒贴着画面顶端时把牌子翻到形状下方，免得被裁掉 ——
+ * 上边缘的热点在内容里不算少见（墙面挂画、窗户）。
+ */
+function drawHotspotLabel(
+  ctx: CanvasRenderingContext2D,
+  stage: CanvasStage,
+  text: string,
+  shape: Shape,
+): void {
+  const bounds = shapeBounds(shape)
+  if (!bounds) return
+  const { viewport } = stage
+  const px = viewport.x + ((bounds.minU + bounds.maxU) / 2) * viewport.w
+
+  ctx.save()
+  ctx.globalAlpha = 0.92
+  ctx.font = `${Math.round(viewport.h * 0.026)}px system-ui, sans-serif`
+  const textWidth = ctx.measureText(text).width
+  const padX = viewport.h * 0.014
+  const boxW = textWidth + padX * 2
+  const boxH = viewport.h * 0.046
+
+  const above = viewport.y + bounds.minV * viewport.h - viewport.h * 0.012 - boxH
+  const by =
+    above >= viewport.y ? above : viewport.y + bounds.maxV * viewport.h + viewport.h * 0.012
+
+  ctx.fillStyle = 'rgba(18, 14, 12, 0.74)'
+  ctx.fillRect(px - boxW / 2, by, boxW, boxH)
+  ctx.fillStyle = 'rgba(255, 238, 208, 0.96)'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(text, px, by + boxH / 2)
+  ctx.restore()
+}
+
+/**
  * 交互反馈：悬停高亮 + 拖拽预览。
  *
  * 对**纯命中区**的物件（只有 shape、没有自己的图）来说，这是玩家唯一能看出
@@ -249,19 +293,51 @@ function drawInteractionFeedback(options: RenderSceneOptions, elapsed: number): 
   const { ctx } = stage
   const hoverId = options.hoverId ?? null
   const drag = options.drag ?? null
+  const pressedId = options.pressedId ?? null
 
-  if (hoverId) {
+  // 按压反馈：手机上不存在 hover，手指按下去的那一下才是「这里能点」的主要线索。
+  // 画得比 hover 更实，因为它是瞬时的、需要一眼看到。
+  if (pressedId) {
+    const pressed = runtime.scene.hotspots.find((h) => h.id === pressedId)
+    if (pressed && runtime.isObjectVisible(pressedId)) {
+      const pressedShape = runtime.hotspotShape(pressedId, elapsed) ?? pressed.shape
+      ctx.save()
+      shapePath(ctx, stage, pressedShape)
+      ctx.fillStyle = 'rgba(255, 236, 200, 0.16)'
+      ctx.fill()
+      ctx.strokeStyle = 'rgba(255, 236, 200, 0.85)'
+      ctx.lineWidth = 3
+      ctx.stroke()
+      ctx.restore()
+    }
+  }
+
+  if (hoverId && hoverId !== pressedId) {
     const hotspot = runtime.scene.hotspots.find((h) => h.id === hoverId)
     if (hotspot && runtime.isObjectVisible(hotspot.id)) {
+      const hoverShape = runtime.hotspotShape(hoverId, elapsed) ?? hotspot.shape
       const pulse = 0.5 + 0.5 * Math.sin(elapsed * 3.4)
       ctx.save()
-      shapePath(ctx, stage, hotspot.shape)
+      shapePath(ctx, stage, hoverShape)
       ctx.fillStyle = `rgba(255, 214, 140, ${0.06 + pulse * 0.05})`
       ctx.fill()
       ctx.strokeStyle = `rgba(255, 224, 168, ${0.55 + pulse * 0.3})`
       ctx.lineWidth = 2
       ctx.stroke()
       ctx.restore()
+
+      /*
+       * 悬停时把物件的名字显示出来。
+       *
+       * `hotspot.label` 此前**没有任何读取点**：demo 里 13 个热点每个都
+       * 认真写了中文标签（"矮桌"、"书架"、"八音盒"…），写完等于没写。
+       * 对叙事冒险来说这恰恰是最该有的一层 —— 玩家要先认得出那是什么，
+       * 才会想去点它。
+       *
+       * 位置取形状包围盒，不跟指针走：手机上没有 hover，用包围盒意味着
+       * "按下去"和"鼠标悬停"落在同一处，两边行为一致。
+       */
+      if (hotspot.label) drawHotspotLabel(ctx, stage, hotspot.label, hoverShape)
     }
   }
 
@@ -394,7 +470,8 @@ function drawDebug(runtime: SceneRuntime, stage: CanvasStage, debug: DebugFlags)
     // 物件的命中区与绘制锚点 —— 调场景时这两个对不上是最常见的问题
     for (const hotspot of runtime.scene.hotspots) {
       ctx.save()
-      shapePath(ctx, stage, hotspot.shape)
+      const shape = runtime.hotspotShape(hotspot.id) ?? hotspot.shape
+      shapePath(ctx, stage, shape)
       ctx.strokeStyle = 'rgba(255, 90, 138, 0.55)'
       ctx.lineWidth = 1
       ctx.stroke()

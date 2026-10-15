@@ -2,7 +2,14 @@ import { isWalkable, type Cell, type WalkMask } from './mask.ts'
 
 const SQRT2 = Math.SQRT2
 
-/** 8 邻域方向。先走斜向再走正向，配合禁止穿角使用。 */
+/**
+ * 8 邻域方向。
+ *
+ * 顺序是**先四个正向、再四个斜向**。这里以前写着"先走斜向再走正向"，
+ * 和数组的实际顺序正好相反。它不影响最优性（代价都标在第三项上），
+ * 只影响并列路径里先被展开的是哪一条 —— 但注释和代码不一致本身就是坑：
+ * 下次有人照着注释去调顺序，得到的结果会跟预期完全相反。
+ */
 const DIRS: readonly (readonly [number, number, number])[] = [
   [1, 0, 1],
   [-1, 0, 1],

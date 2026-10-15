@@ -1,6 +1,6 @@
-﻿import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Howl } from 'howler'
-import { AudioBus } from '../src/engine/audio.ts'
+import { AudioBus, DEFAULT_AUDIO_SETTINGS, sanitizeAudioSettings } from '../src/engine/audio.ts'
 
 /**
  * 音频总线的淡出竞态。
@@ -17,6 +17,8 @@ class FakeHowl {
   volumeValue = 1
   stopCount = 0
   playCount = 0
+  pauseCount = 0
+  unloadCount = 0
 
   constructor(options: { src?: string[] }) {
     this.src = options.src?.[0] ?? ''
@@ -51,7 +53,9 @@ class FakeHowl {
     return this.volumeValue
   }
 
-  unload(): void {}
+  pause(): void { this.pauseCount += 1; this.isPlaying = false }
+
+  unload(): void { this.unloadCount += 1 }
 }
 
 function makeBus(): AudioBus {
@@ -68,6 +72,36 @@ afterEach(() => {
 })
 
 describe('AudioBus 淡出竞态', () => {
+  it('后台暂停与恢复对应已播放实例', () => {
+    const bus = makeBus()
+    bus.playBgm('bgm/theme.ogg')
+    const theme = FakeHowl.created[0]
+    bus.setPaused(true)
+    expect(theme.pauseCount).toBe(1)
+    bus.setPaused(false)
+    expect(theme.playCount).toBe(2)
+    bus.dispose()
+  })
+
+  it('语音使用自定义目录也会停止上一句', () => {
+    const bus = makeBus()
+    bus.playVo('custom/a.mp3')
+    const first = FakeHowl.created[0]
+    bus.playVo('custom/b.mp3')
+    expect(first.stopCount).toBe(1)
+    bus.dispose()
+  })
+
+  it('销毁后淡出计时器不再操作已卸载对象', () => {
+    const bus = makeBus()
+    bus.playBgm('bgm/a.ogg')
+    const a = FakeHowl.created[0]
+    bus.stopBgm(1)
+    bus.dispose()
+    vi.advanceTimersByTime(2000)
+    expect(a.unloadCount).toBe(1)
+    expect(a.stopCount).toBe(0)
+  })
   it('stopBgm 之后立刻重播同一首，不会被迟到的定时器掐掉', () => {
     const bus = makeBus()
     bus.playBgm('bgm/theme.ogg', 0.5)
@@ -129,5 +163,41 @@ describe('AudioBus 淡出竞态', () => {
     const a = FakeHowl.created[0]
     expect(a.playCount).toBe(1)
     expect(bus.getSettings().muted).toBe(true)
+  })
+})
+
+describe('音量设置的净化', () => {
+  /*
+   * 这套设置是持久化的（zustand persist → localStorage），而 zustand 默认
+   * 只做浅合并、不做校验。localStorage 会被旧版本、别的标签页、手改污染，
+   * 一个 master:null 就够让 Howler.volume(NaN) 把音频搞哑。
+   */
+  it('非法值回落到默认，而不是原样透传', () => {
+    const settings = sanitizeAudioSettings({ master: 'loud', bgm: null, sfx: [], vo: {} , muted: 'yes' })
+    expect(settings).toEqual(DEFAULT_AUDIO_SETTINGS)
+  })
+
+  it('越界数值被夹回 0..1', () => {
+    const settings = sanitizeAudioSettings({ master: 99, bgm: -5, sfx: 0.5, vo: 1, muted: false })
+    expect(settings.master).toBe(1)
+    expect(settings.bgm).toBe(0)
+    expect(settings.sfx).toBe(0.5)
+  })
+
+  it('NaN / Infinity 不会漏过去', () => {
+    const settings = sanitizeAudioSettings({ master: Number.NaN, bgm: Number.POSITIVE_INFINITY })
+    expect(Number.isFinite(settings.master)).toBe(true)
+    expect(Number.isFinite(settings.bgm)).toBe(true)
+  })
+
+  it('不是对象时整份回落默认', () => {
+    for (const value of [null, undefined, 42, 'x', []]) {
+      expect(sanitizeAudioSettings(value)).toEqual(DEFAULT_AUDIO_SETTINGS)
+    }
+  })
+
+  it('合法的部分完整保留', () => {
+    const settings = sanitizeAudioSettings({ master: 0.3, bgm: 0.2, sfx: 0.1, vo: 0.9, muted: true })
+    expect(settings).toEqual({ master: 0.3, bgm: 0.2, sfx: 0.1, vo: 0.9, muted: true })
   })
 })

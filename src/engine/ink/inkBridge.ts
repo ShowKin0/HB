@@ -40,6 +40,8 @@ export class InkBridge {
   private story: Story | null = null
   private storyJson = ''
   private readonly conditionCache = new Map<string, boolean>()
+  private readonly externalConditions = new Set<string>()
+  private evaluatingCondition: string | null = null
   /**
    * 已经报过错的条件函数名。和 conditionCache 分开存，**不随剧情推进清空** ——
    * 否则一个写错的条件会在每次推进时重复报错。
@@ -61,11 +63,21 @@ export class InkBridge {
   get choices(): ChoiceView[] {
     const story = this.story
     if (!story || story.canContinue) return []
-    return story.currentChoices.map((choice) => ({
-      index: choice.index,
-      text: choice.text,
-      tags: [...(choice.tags ?? [])],
-    }))
+    /*
+     * 参数显式标注类型。
+     *
+     * `inkjs` 的 `Story.d.ts` 里 `currentChoices: Choice[]` 的那个 `Choice`
+     * 在本项目的编译配置下没能解析成形，整个数组退化成 `any[]`，于是这里
+     * 撞上 `noImplicitAny`。它**一直存在**，只是被 `tsc -b` 的增量编译掩盖着
+     * ——`inkBridge.ts` 没改过就永远不会重查，换 `--force` 才暴露出来。
+     */
+    return story.currentChoices.map(
+      (choice: { index: number; text: string; tags?: string[] | null }) => ({
+        index: choice.index,
+        text: choice.text,
+        tags: [...(choice.tags ?? [])],
+      }),
+    )
   }
 
   /** 已加载的剧本源码 JSON，用于重置。 */
@@ -79,9 +91,44 @@ export class InkBridge {
     story.onError = (message: string) => {
       this.reportError(message)
     }
+    /*
+     * 让剧本能读到引擎侧的标记。
+     *
+     * `# flag:` / `# unlock:` 会把标记写进 `engine.flags` 并随存档持久化，
+     * 但此前**剧本完全看不见它们** —— 内容写了标记却无法据此分支，
+     * 等于只能写、不能读。
+     *
+     * 用法（在 .ink 里声明之后就能当条件用）：
+     *
+     *     EXTERNAL hb_flag(key)
+     *     === function met_mom() ===
+     *     ~ return hb_flag("met_mom")
+     *
+     * 绑定本身是安全的：ink 没声明 EXTERNAL 时这个函数永远不会被调用。
+     * 反过来，声明了 EXTERNAL 却没绑定，inkjs 会在运行时直接报错 ——
+     * 所以这里**无条件**绑上，不能按需绑。
+     */
+    /*
+     * 无条件绑上，不能按需绑 —— 理由见上面那段注释。
+     */
+    story.BindExternalFunction('hb_flag', (key: unknown) => {
+      if (this.evaluatingCondition) this.externalConditions.add(this.evaluatingCondition)
+      return this.readFlag?.(String(key)) ?? false
+    })
     this.story = story
     this.conditionCache.clear()
+    this.externalConditions.clear()
+    this.failedConditions.clear()
+    this.reportedMissing.clear()
   }
+
+  /**
+   * 读取引擎侧标记的回调，由 Game 注入。
+   *
+   * 用回调而不是把 flags 传进来：标记是**可变**的，每次 `# flag:` 都会改，
+   * 桥不该持有一份会过期的快照。
+   */
+  readFlag: ((key: string) => boolean) | null = null
 
   reset(): void {
     if (this.storyJson) this.load(this.storyJson)
@@ -182,11 +229,12 @@ export class InkBridge {
     const story = this.story
     if (!story) return false
 
-    const key = `${name}(${args.join(',')})`
+    const key = JSON.stringify([name, args])
     const cached = this.conditionCache.get(key)
-    if (cached !== undefined) return cached
+    if (cached !== undefined && !this.externalConditions.has(key)) return cached
 
     let result = false
+    this.evaluatingCondition = key
     try {
       result = toBoolean(story.EvaluateFunction(name, args))
     } catch (error) {
@@ -199,6 +247,8 @@ export class InkBridge {
         this.reportError((error as Error).message)
       }
       result = false
+    } finally {
+      this.evaluatingCondition = null
     }
     this.conditionCache.set(key, result)
     return result

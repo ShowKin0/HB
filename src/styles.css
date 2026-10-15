@@ -1,96 +1,125 @@
 /* ============================================================================
-   设计令牌。
+   引擎结构令牌。
+   ==========================================================================
+
+   **这里只有"结构"，没有"外观"。**
+
+   颜色、字体、圆角、阴影属于主题包，见 themes/*.css —— 换一套主题不该
+   把布局也换掉，反过来也一样。以前这两类混在一个 :root 里，结果是
+   "当前这套配色"看起来像引擎的一部分。
+
    字体不在构建期打包 —— 中文字体全字库有 3~8MB，会直接毁掉首屏。
-   正确做法是用 pyftsubset 子集化后放进 public/fonts 再在这里 @font-face 引用，
-   见 README 的"字体子集化"。这里只声明字体栈，缺失时回落到系统字体。
+   正确做法是用 pyftsubset 子集化后放进 public/fonts 再在主题里 @font-face
+   引用，见 README 的"字体子集化"。这里只声明字体栈，缺失时回落到系统字体。
    ========================================================================== */
 
 :root {
-  --font-narrative: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', 'SimSun', serif;
-  --font-hand: 'LXGW WenKai', 'Noto Sans SC', 'PingFang SC', sans-serif;
-  --font-ui: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
-
-  --bg-0: #0d0b0a;
-  --bg-1: #16120f;
-  --bg-2: #201a16;
-  --bg-3: #2b2320;
-  --line: rgba(226, 208, 180, 0.14);
-  --line-strong: rgba(226, 208, 180, 0.28);
-
-  --ink-0: #f4ece0;
-  --ink-1: #d8cbb8;
-  --ink-2: #9d9083;
-  --ink-3: #6b6157;
-
-  --accent: #d9a566;
-  --accent-soft: rgba(217, 165, 102, 0.16);
-  --danger: #d9705f;
-
-  --radius-s: 6px;
-  --radius-m: 12px;
-  --radius-l: 18px;
-  --shadow-panel: 0 18px 48px rgba(0, 0, 0, 0.55);
-  --shadow-soft: 0 6px 20px rgba(0, 0, 0, 0.35);
-
-  --safe-b: env(safe-area-inset-bottom, 0px);
+  /*
+   * 安全区四条边都要。
+   *
+   * 横屏时刘海在**左或右**（取决于往哪边转），所以左右都要留 ——
+   * 只做上下的话，横屏下右上角的按钮会正好压在刘海底下。
+   * 前提是 index.html 里有 viewport-fit=cover，否则这四个值全是 0。
+   */
   --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+
+  /** 左右取较大者：给"两侧都要躲"的元素（如居中的面板）用。 */
+  --safe-x: max(var(--safe-l), var(--safe-r));
 
   /**
-   * 底部为对话框预留的高度。
-   *
-   * 引擎读的是它的**最小值**（getComputedStyle().minHeight），作为场景
-   * letterbox 时的底部留白 —— 于是角色走到房间最前排也不会被对话框盖住。
-   *
-   * 这里必须按"最常见的三行长句"来定（约 170px）：
-   * 定小了会把台词裁掉，定大了会白白压扁场景。
-   * 真正的长台词允许对话框向上生长、略微压住场景，但绝不裁字。
+   * 对话占位的兜底尺寸。真正的取值由 `[data-dialogue=...]` 那一段按内容
+   * 声明的布局形态给出（见下面的 `--footprint-*`）。属性在第一帧就写上了，
+   * 这里留着只是防止属性缺失时样式塌掉。
    */
-  --dialogue-band: clamp(168px, 26vh, 220px);
-
-  color-scheme: dark;
+  --dialogue-panel: 0px;
+  --dialogue-band: clamp(148px, 24vh, 200px);
+  --footprint-w: 0px;
+  --footprint-h: calc(var(--dialogue-band) + var(--safe-b));
 }
 
-* {
-  box-sizing: border-box;
+/*
+ * ── 对话布局：由内容/主题声明，不由屏幕方向决定 ──────────────────────
+ *
+ * 这一块以前是一堆 `@media (orientation: landscape)` —— 也就是说
+ * **屏幕一转，布局就变了**，"横屏用右侧面板"被焊死在核心里。
+ *
+ * 但那只是 soft-watercolor 主题在 iPhone 14 横屏下的一个解。
+ * 引擎不该知道"对话应该在底部还是右侧"，那是内容的声明：
+ * 见 content/project.json 的 `layout.dialogue` 和场景里的 `dialogue` 覆盖。
+ *
+ * 现在 CSS 只认 `[data-dialogue=...]`，属性由 GameShell 按解析结果写上。
+ * 换布局改内容 JSON 就够了，不用碰样式表，也不用碰引擎。
+ *
+ * 各形态的场景占屏实测（iPhone 14 横屏 844×346，16:9 场景）：
+ *   side   面板 253px → 场景 591×332 → 67%
+ *   bottom 留白 104px → 场景 420×236 → 36%
+ *   overlay 不占位    → 场景 615×346 → 72%（但会盖住角色，见下）
+ *
+ * `overlay` 不避让场景，所以它会盖住角色能走到的位置 —— 这是它的**定义**
+ * （"对话只是浮一层字幕"），不是 bug。需要不遮挡就用 side 或 bottom。
+ */
+
+/*
+ * 每种形态报告的是**对话自己占多大地方**（footprint）。
+ *
+ * 探针读这两个值，"要不要让场景避开"则由 JS 按 `data-dialogue-reserve`
+ * 决定 —— 因为**走动深度永远要让开对话**，而画面是否让开是可以选的。
+ * 把两件事混在一个变量里，就会出现"角色走到文本框后面去了"。
+ */
+[data-dialogue='side'] {
+  --dialogue-panel: clamp(232px, 30vw, 320px);
+  --dialogue-band: 0px;
+  --footprint-w: calc(var(--dialogue-panel) + var(--safe-r));
+  --footprint-h: 0px;
 }
 
-html,
-body,
-#root {
-  height: 100%;
-  margin: 0;
+/* bottom / overlay：底部一条。两者footprint 相同，区别在画面让不让。 */
+[data-dialogue='bottom'],
+[data-dialogue='overlay'] {
+  --dialogue-band: clamp(148px, 24vh, 200px);
+  --dialogue-panel: 0px;
+  --footprint-w: 0px;
+  --footprint-h: calc(var(--dialogue-band) + var(--safe-b));
 }
 
-body {
-  background: var(--bg-0);
-  color: var(--ink-0);
-  font-family: var(--font-ui);
-  -webkit-font-smoothing: antialiased;
-  -webkit-tap-highlight-color: transparent;
-  overscroll-behavior: none;
+/* fullscreen：铺满整屏，对话不"占"一角，而是整块 */
+[data-dialogue='fullscreen'] {
+  --dialogue-band: 0px;
+  --dialogue-panel: 0px;
+  --footprint-w: 0px;
+  --footprint-h: 0px;
 }
 
-button {
-  font: inherit;
-  color: inherit;
-  background: none;
-  border: none;
-  cursor: pointer;
+/* none：这个场景没有对话 */
+[data-dialogue='none'] {
+  --dialogue-band: 0px;
+  --dialogue-panel: 0px;
+  --footprint-w: 0px;
+  --footprint-h: 0px;
 }
 
-button:focus-visible,
-[tabindex]:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
+/* 矮屏：无论哪种形态都要收一档，把高度还给场景 */
+@media (max-height: 380px) {
+  [data-dialogue='bottom'],
+  [data-dialogue='overlay'] {
+    /*
+     * 矮屏这一档必须**放得下一张台词卡**。
+     *
+     * 卡片本身的自然高度约 110px（说话人一行 + 台词一行 + 内边距），
+     * 而文本框现在有固定高度（走动深度按它收窄，不能再随台词长高）。
+     * 框比卡片矮的话，台词会溢出到屏幕外 —— 实测 96px 时卡片下边界
+     * 到 390，而视口只有 375。
+     *
+     * 下限 124px 是"放得下最短的一句台词"的实测值。宁可压一点场景，
+     * 也不能让台词看不见。
+     */
+    --dialogue-band: clamp(124px, 26vh, 168px);
+  }
 
-/* 尊重系统的"减少动态效果"设置 */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
+  [data-dialogue='side'] {
+    --dialogue-panel: clamp(208px, 29vw, 288px);
   }
 }

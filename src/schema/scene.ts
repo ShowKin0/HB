@@ -1,7 +1,10 @@
 import { z } from 'zod'
+import { DialogueLayoutOverrideSchema } from './layout.ts'
 import {
   INTERACTION_VERBS,
+  effectsFromLegacy,
   resolveSceneMode,
+  summarizeEffects,
 } from './scene.rules.ts'
 import {
   AssetRefSchema,
@@ -21,7 +24,7 @@ import {
  * 若四角构成矩形，该矩阵退化为仿射变换，即正交/弱透视场景 ——
  * 同一套寻路与渲染代码同时覆盖两种情况。
  */
-export const GroundSchema = z.object({
+export const GroundSchema = z.strictObject({
   corners: z.tuple([Vec2Schema, Vec2Schema, Vec2Schema, Vec2Schema]),
 })
 export type Ground = z.infer<typeof GroundSchema>
@@ -68,7 +71,24 @@ export {
  * 这是从"热点只有 onClick"升级过来的核心：同一个物件可以挂多条交互，
  * 按动词 + 条件（when）筛选，命中哪条就走哪条。
  */
-export const InteractionSchema = z.object({
+export const ObjectPatchSchema = z.strictObject({
+  state: z.string().min(1).optional(),
+  visible: z.boolean().optional(),
+  progress: z.number().optional(),
+})
+
+export const EffectSchema = z.strictObject({
+  type: z.enum(['object.patch', 'story.knot', 'story.event', 'audio.sfx', 'item.award', 'item.consume']),
+  /** object.patch 的目标物件 id。'@self' 表示这条交互所属的物件。 */
+  target: z.string().min(1).default('@self'),
+  patch: ObjectPatchSchema.default({}),
+  knot: z.string().default(''),
+  name: z.string().default(''),
+  path: z.string().default(''),
+  item: z.string().default(''),
+})
+
+const InteractionBaseSchema = z.strictObject({
   verb: InteractionVerbSchema,
   /** 条件：ink 函数名，返回真值时这条交互才可用。null 表示无条件。 */
   when: z.string().min(1).nullable().default(null),
@@ -77,7 +97,7 @@ export const InteractionSchema = z.object({
   /** verb 为 drag 时接受的物品 id 列表。 */
   accepts: z.array(z.string().min(1)).default([]),
   /** 命中后跳转的 ink knot。 */
-  action: z.string().min(1),
+  action: z.string().default(''),
   /**
    * 命中后把物件切到哪个视觉状态。null 表示不改。
    * 状态名对应 hotspot.visualStates 的键。
@@ -89,6 +109,25 @@ export const InteractionSchema = z.object({
   emit: z.string().min(1).nullable().default(null),
   /** 命中时播放的音效，相对 assets 的路径。 */
   sfx: AssetRefSchema.default(null),
+  /**
+   * 动作列表。
+   *
+   * 新格式。不写 story.knot 时**整条交互完全不碰 ink** ——
+   * 纯物件操作因此可以独立成立，通用引擎不该要求每条交互都跳转 knot。
+   */
+  effects: z.array(EffectSchema).default([]),
+})
+
+/**
+ * 交互的规范化。
+ *
+ * 关键：**Zod 路径与 normalizeScene 路径必须得到完全相同的结果**，
+ * 所以两边都调 summarizeEffects —— 各写一份推导逻辑的话，
+ * tests/normalize.test.ts 的一致性断言立刻会报漂移。
+ */
+export const InteractionSchema = InteractionBaseSchema.transform((value) => {
+  const effects = value.effects.length > 0 ? value.effects : effectsFromLegacy(value)
+  return { ...value, ...summarizeEffects(effects), effects }
 })
 export type Interaction = z.infer<typeof InteractionSchema>
 
@@ -101,7 +140,7 @@ export type CursorKind = z.infer<typeof CursorKindSchema>
  * speed 的单位是"每秒走过的地面平面比例"，因为平面恒为 [0,1]²，
  * 所以 speed = 0.5 表示横穿整个地面约需 2 秒，与分辨率、透视都无关。
  */
-export const ActorSpecSchema = z.object({
+export const ActorSpecSchema = z.strictObject({
   id: z.string().min(1),
   /** 渲染器 id，见 src/actorRenderers/registry.ts。缺省部件骨架。 */
   renderer: z.string().min(1).default('partRig'),
@@ -113,7 +152,15 @@ export const ActorSpecSchema = z.object({
   speed: z.number().positive().max(4).default(0.45),
   /** 初始朝向：1 面向右，-1 面向左。 */
   facing: z.union([z.literal(1), z.literal(-1)]).default(1),
-  /** 部件图集 JSON 路径；null 时渲染器使用内置程序化绘制。 */
+  /**
+   * **该渲染器自己的素材引用**，由渲染器解释含义；null 时用内置程序化绘制。
+   *
+   *   · `partRig`    → 部件图集 JSON（`PartAtlasFile`）
+   *   · `spriteSheet`→ 精灵图集 JSON（`SpriteAtlasFile`，里面再指向那张图）
+   *   · `glide`      → 单张立绘的图片路径
+   *
+   * 字段名沿用 `parts` 是历史原因；它不是"只给部件骨架用的"。
+   */
   parts: AssetRefSchema.default(null),
   /** 主体色调，null 用渲染器默认。 */
   tint: ColorSchema.nullable().default(null),
@@ -128,7 +175,7 @@ export type ActorSpec = z.infer<typeof ActorSpecSchema>
  * 这是"让物件活起来"最省力的一档：一个杯子在画面里靠的不是自己会动，
  * 而是有呼吸感的浮动 + 影子跟着变。
  */
-export const ObjectAnimSchema = z.object({
+export const ObjectAnimSchema = z.strictObject({
   type: z.enum(['none', 'float', 'sway', 'pulse']).default('none'),
   /** 幅度，场景空间比例。 */
   amplitude: z.number().min(0).max(0.2).default(0.008),
@@ -140,7 +187,7 @@ export const ObjectAnimSchema = z.object({
 export type ObjectAnim = z.infer<typeof ObjectAnimSchema>
 
 /** 物件在场景里的绘制与状态。物件的空间状态存在存档里，这里只是初始值。 */
-const DrawableSchema = z.object({
+const DrawableSchema = z.strictObject({
   /** 基础图片。null 表示这个物件不自己画图（纯命中区，或由图层负责外观）。 */
   image: AssetRefSchema.default(null),
   /** 视觉状态 → 图片。当前状态取不到图时回落到 image。 */
@@ -212,7 +259,7 @@ export const SceneLayerSchema = DrawableSchema.extend({
 })
 export type SceneLayer = z.infer<typeof SceneLayerSchema>
 
-export const ExitSchema = z.object({
+export const ExitSchema = z.strictObject({
   id: z.string().min(1),
   shape: ShapeSchema,
   /** 目标场景 id，或 ink knot 名（由引擎按前缀区分）。 */
@@ -223,9 +270,11 @@ export const ExitSchema = z.object({
 export type Exit = z.infer<typeof ExitSchema>
 
 export const SceneSchema = z
-  .object({
+  .strictObject({
     id: z.string().min(1),
     title: z.string().default(''),
+    /** 内容工具自己的元数据；引擎不解释，导入导出完整保留。 */
+    metadata: z.record(z.string(), z.json()).default({}),
     /**
      * 场景模式。null 表示自动推断：
      * 有 ground 且有角色 → walk，否则 focus。
@@ -254,6 +303,13 @@ export const SceneSchema = z
      * 不填也能用（故事会停在原地），但填上后交互循环更稳。
      */
     hub: z.string().min(1).nullable().default(null),
+    /**
+     * 这个场景对对话布局的覆盖。null 表示完全继承内容包默认。
+     *
+     * 只写想改的项 —— 只写 `{"landscape": "overlay"}` 的话，其余三项
+     * 继续跟着内容包走。核心不认识"聊天"或"视觉小说"，只认这些 placement。
+     */
+    dialogue: DialogueLayoutOverrideSchema.nullable().default(null),
   })
   .superRefine((scene, ctx) => {
     const mode = resolveSceneMode(scene)
@@ -322,13 +378,20 @@ export const SceneSchema = z
       }
     }
 
-    // 每个物件至少要有一条能触发的交互
+    // 每个物件至少要有一条能触发的交互。
+    // 三种形态都算数：新的 interactions 列表、旧的 onClick、
+    // 以及"只接受某个物品"的 acceptsItem + onUse（这种物件点不动，
+    // 但把正确的物品拖上去有反应，是合法的）。
     for (const hotspot of scene.hotspots) {
-      if (!hotspot.onClick && hotspot.interactions.length === 0) {
+      const usable =
+        hotspot.interactions.length > 0 ||
+        Boolean(hotspot.onClick) ||
+        Boolean(hotspot.acceptsItem && hotspot.onUse)
+      if (!usable) {
         ctx.addIssue({
           code: 'custom',
           path: ['hotspots', hotspot.id],
-          message: `物件 ${hotspot.id} 既没有 interactions 也没有 onClick，点它不会有任何反应`,
+          message: `物件 ${hotspot.id} 既没有 interactions、onClick，也没有 acceptsItem + onUse，怎么点都不会有反应`,
         })
       }
     }

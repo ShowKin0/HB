@@ -8,6 +8,25 @@
   background: radial-gradient(circle at 50% 30%, var(--bg-2), var(--bg-0) 70%);
 }
 
+/*
+ * 布局探针：尺寸由 CSS 按当前形态给出的 --footprint-w / --footprint-h 决定，内容为空。
+ *
+ * 为什么需要它：getComputedStyle().getPropertyValue('--x') 对自定义属性
+ * 返回的是**未求值的 token 流**（例如 "calc(clamp(216px, 34vw, 300px) + 0px)"），
+ * parseFloat 直接得到 NaN。踩过这个坑之后，改成读一个真实元素解析后的像素。
+ *
+ * 让 CSS 继续当布局的唯一真相源，JS 只读结果。
+ */
+.insetProbe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  visibility: hidden;
+  pointer-events: none;
+  width: var(--footprint-w);
+  height: var(--footprint-h);
+}
+
 .canvas {
   position: absolute;
   inset: 0;
@@ -22,7 +41,8 @@
 .hud {
   position: absolute;
   top: calc(var(--safe-t) + 10px);
-  right: 12px;
+  /* 横屏时刘海在左或右，只躲上面是不够的 —— 右上角的按钮会正好压在刘海底下 */
+  right: calc(var(--safe-r) + 12px);
   display: flex;
   gap: 8px;
   z-index: 20;
@@ -68,17 +88,135 @@
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding: 0 12px calc(var(--safe-b) + 10px);
+  /* 左右安全区：横屏时刘海会切到对话框的文字 */
+  padding: 0 calc(var(--safe-x) + 12px) calc(var(--safe-b) + 10px);
   z-index: 15;
   pointer-events: none;
 }
 
+/*
+ * bottom / overlay：文本框**固定高度**，长台词在框内滚动。
+ *
+ * 不能用 min-height 任它向上长：走动深度是按 `--dialogue-band` 这个标称值
+ * 收窄的，框一长就会盖住角色 —— 实测差 6px，正好是两行字的量。
+ * 视觉小说的文本框本来就是固定尺寸的，长文本滚动也是通行做法。
+ */
+[data-dialogue='bottom'] .dialogueLayer,
+[data-dialogue='overlay'] .dialogueLayer {
+  height: calc(var(--dialogue-band) + var(--safe-b));
+  min-height: 0;
+  overflow-y: auto;
+  /*
+   * 底部对齐用子元素的 `margin-top: auto`，**不能用 `align-items: flex-end`**。
+   *
+   * flex-end 在内容比容器高时会把溢出全部推到**顶部**，而滚动容器里
+   * "溢出到起始侧"的那部分在多数浏览器上是**滚不到**的。实测：
+   * 卡片 394px、容器 96px 时 `scrollHeight === clientHeight === 96`、
+   * `maxScroll === 0` —— 也就是长台词直接消失，玩家没有任何办法看到。
+   *
+   * `margin-top: auto` 在行方向 flex 里等价于"有富余就贴底"，
+   * 内容超高时它自动塌成 0，于是从顶部开始排、正常可滚。
+   *
+   * 用 `flex-start` 而不是 `stretch`：stretch 会让卡片高度等于容器内容高，
+   * 卡片自己的内边距再叠上去就整体超出容器，下边界溢出到框外。
+   */
+  align-items: flex-start;
+}
+
+[data-dialogue='bottom'] .dialogueLayer > *,
+[data-dialogue='overlay'] .dialogueLayer > * {
+  margin-top: auto;
+}
+
+/*
+ * `none`：这个场景**没有对话**。
+ *
+ * 内容声明了不要对话，屏幕上就不能还挂着一条对话框 —— 之前这个形态
+ * 只把 inset 归零，层照常渲染，声明等于没生效。
+ * 纯物件解谜、纯观察场景会用到它。
+ */
+[data-dialogue='none'] .dialogueLayer {
+  display: none;
+}
+
+/*
+ * `fullscreen`：铺满整屏（纯聊天 / 纯文本流程）。
+ *
+ * 场景仍在下面正常渲染，只是被完全盖住 —— 切到别的形态时不需要重新布局。
+ * 注意它和 `overlay` 的区别：overlay 只是浮一层，尺寸还是底部那一条。
+ */
+[data-dialogue='fullscreen'] .dialogueLayer {
+  top: 0;
+  min-height: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--safe-t) + 20px) calc(var(--safe-x) + 20px) calc(var(--safe-b) + 20px);
+}
+
+/*
+ * `overlay`：浮在场景上、**不占位**（inset 为 0），尺寸仍是底部那一条。
+ * 几何不动，只加一层渐变把台词和场景拉开，免得贴边的字看不清。
+ */
+[data-dialogue='overlay'] .dialogueLayer {
+  background: var(--surface-overlay);
+}
+
+/*
+ * side 形态：对话框整体挪到**右侧面板**。
+ *
+ * 底部实心条在矮横屏上会吃掉三成屏高，而浮层又会盖住角色能走到的区域 ——
+ * 所以侧栏：场景在左、对话在右，结构上不重叠。
+ *
+ * ⚠️ 这个形态**不是引擎默认**，是内容声明出来的（`layout.dialogue.landscape`）。
+ * 换成底部/浮层/全屏，改内容 JSON 即可，这一整块都不会生效。
+ */
+[data-dialogue='side'] .dialogueLayer {
+    top: 0;
+    bottom: 0;
+    left: auto;
+    right: 0;
+    width: calc(var(--dialogue-panel) + var(--safe-r));
+    min-height: 0;
+    /*
+     * 台词在面板里**垂直居中、整体略偏上**。
+     *
+     * 贴顶的话下面一大片空白，看着像没做完；正居中又会和底部对齐的选项撞上。
+     * 所以靠"下内边距大于上内边距"把居中点往上推：文字中心落在面板
+     * 约 38% 的高度，下面 60% 留给选项 —— 两者天然不重叠，
+     * 长台词还能在面板里滚动。
+     */
+    align-items: center;
+    /*
+     * 下内边距用 vh，**不能用百分比**。
+     *
+     * CSS 的百分比内边距一律按包含块的**宽度**解析 —— 这里的包含块是整屏
+     * .root（844px），30% 会算出 253px，把内容盒压到 71px 高，文字直接被
+     * 顶到面板最上面。写法看起来完全合理，所以特别隐蔽。
+     */
+    padding: calc(var(--safe-t) + 22px) calc(var(--safe-r) + 16px) calc(var(--safe-b) + 24vh) 16px;
+    background: var(--surface-side);
+    border-left: 1px solid var(--line);
+    /* 面板比场景高：长台词要能滚，不能裁 */
+    overflow-y: auto;
+  }
+
+  /*
+   * 注意：这里**不要**给 .dialogue 写 background/border/padding 覆盖。
+   * CSS module 的基础 .dialogue 规则在源码里排在这一段**之后**，
+   * 同优先级下后者胜 —— 写在这里的覆盖全是死代码，只会误导人。
+   * 面板里保留对话框自己的描边和渐变底，层次反而更清楚。
+   */
+  .dialogue {
+    width: 100%;
+  }
+
 .dialogue {
-  width: min(760px, 100%);
+  /* 横屏屏宽 844px，760px 太窄会让长句频繁折行 */
+  width: min(900px, 100%);
   pointer-events: auto;
   border-radius: var(--radius-l);
   border: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(26, 21, 18, 0.94), rgba(16, 13, 11, 0.97));
+  background: var(--surface-dialogue);
   box-shadow: var(--shadow-panel);
   padding: 16px 20px 14px;
   animation: rise 0.24s ease-out;
@@ -115,8 +253,7 @@
 
 .advanceHint {
   margin-top: 10px;
-  font-size: 11px;
-  letter-spacing: 0.18em;
+  font-size: 11px;  letter-spacing: 0.18em;
   color: var(--ink-3);
   text-align: right;
   animation: blink 1.8s ease-in-out infinite;
@@ -157,7 +294,7 @@
   padding: 15px 18px;
   border-radius: var(--radius-m);
   border: 1px solid var(--line);
-  background: rgba(26, 21, 18, 0.92);
+  background: var(--surface-solid);
   color: var(--ink-0);
   font-family: var(--font-narrative);
   font-size: 16px;
@@ -176,7 +313,7 @@
 
 .inventory {
   position: absolute;
-  left: 12px;
+  left: calc(var(--safe-l) + 12px);
   bottom: calc(var(--safe-b) + 12px);
   display: flex;
   gap: 8px;
@@ -325,7 +462,7 @@
   flex-direction: column;
   gap: 8px;
   z-index: 40;
-  width: min(440px, calc(100vw - 24px));
+  width: min(440px, calc(100vw - var(--safe-l) - var(--safe-r) - 24px));
 }
 
 .toast {
@@ -398,4 +535,289 @@
   100% {
     transform: translateX(260%);
   }
+}
+
+/* ============================================================================
+   横屏适配
+   ----------------------------------------------------------------------------
+   以 iPhone 14 横屏为准：844 × 390 CSS px。
+   可用高度只有 390px —— 竖屏那套「上方 HUD + 中间场景 + 底部对话框」的
+   三段式在这里会把场景压到 222px 高。所以横屏改成**分层叠加**：
+   场景铺满，其余控件浮在它上面。
+
+   竖屏仍然完全可用（这是自适应，不是二选一），只是不再作为设计基准。
+   ========================================================================== */
+
+[data-dialogue='side'] {
+  /* HUD 只占场景区，不压到右侧对话面板上 */
+  .hud {
+    right: calc(var(--footprint-w) + 12px);
+  }
+
+  /*
+   * 物品栏从底部左下挪到左上。
+   *
+   * 底部被对话框浮层占着了 —— 留在原地会被盖住，玩家点了物品栏却点在
+   * 对话框上。左上在横屏是空的（HUD 在右上，且已躲开刘海侧）。
+   */
+  .inventory {
+    top: calc(var(--safe-t) + 10px);
+    bottom: auto;
+    left: calc(var(--safe-l) + 12px);
+    max-width: 40vw;
+  }
+
+  /*
+   * 选项也放进右侧面板，和对话同一个位置。
+   *
+   * 居中的话在 346px 高的屏上会和对话框叠在一起，两个都读不清；
+   * 靠下对齐又会压住场景里角色的位置。放进面板则天然不冲突：
+   * 玩家在读台词的地方做选择。
+   */
+  .choiceLayer {
+    top: 0;
+    left: auto;
+    right: 0;
+    bottom: 0;
+    width: calc(var(--dialogue-panel) + var(--safe-r));
+    align-items: flex-end;
+    justify-content: flex-start;
+    padding: calc(var(--safe-t) + 10px) calc(var(--safe-r) + 14px) calc(var(--safe-b) + 12px) 14px;
+    background: var(--surface-side);
+    border-left: 1px solid var(--line);
+    overflow-y: auto;
+    backdrop-filter: none;
+  }
+
+  .choiceList {
+    width: 100%;
+    gap: 8px;
+  }
+
+  .choice {
+    padding: 12px 14px;
+    font-size: 15px;
+  }
+
+  .choice:hover {
+    transform: none;
+  }
+
+  /* 面板：竖屏的 max-height 78vh 在横屏只剩 304px，太憋屈 */
+  .backdrop {
+    padding: calc(var(--safe-t) + 10px) calc(var(--safe-x) + 12px) calc(var(--safe-b) + 10px);
+  }
+
+  .panel {
+    max-height: 100%;
+    padding: 16px 18px;
+  }
+
+  .panelTitle {
+    margin-bottom: 12px;
+  }
+
+  .row {
+    padding: 8px 0;
+  }
+
+  /* 对话框内边距收紧，把省下的高度还给文字 */
+  .dialogue {
+    padding: 12px 18px 11px;
+  }
+
+  /*
+   * 字号略降、行高略紧：横屏每行能塞的字更多，同样字号反而显得笨重。
+   * 不能再小了 —— 16px 是手机上正文的可读下限。
+   */
+  .text {
+    font-size: 16px;
+    line-height: 1.72;
+  }
+
+  .boot {
+    gap: 12px;
+  }
+}
+
+/* 底部对话框形态：横屏时刘海在左右，内边距要躲开 */
+[data-dialogue='bottom'] {
+  .hud {
+    right: calc(var(--safe-r) + 12px);
+  }
+
+  .choiceLayer {
+    padding: 12px calc(var(--safe-x) + 12px) calc(var(--dialogue-band) + var(--safe-b) + 8px);
+  }
+}
+
+/* 横屏但屏特别矮（如 iPhone SE 横屏 667×375）：再压一档 */
+/* 矮屏：不论什么形态都收紧一档 */
+@media (max-height: 380px) {
+  .hudButton {
+    min-width: 40px;
+    padding: 0 10px;
+  }
+}
+
+/* ── 竖屏引导 ───────────────────────────────────────────────── */
+
+/*
+ * 只在竖屏显示。
+ *
+ * 用媒体查询而不是 JS 控制显示：首帧就是对的，不会先闪一下再盖住；
+ * 也不需要 resize 监听。JS 那边只管暂停游戏。
+ */
+.orientationGate {
+  display: none;
+}
+
+@media (orientation: portrait) {
+  [data-required-orientation='landscape'].orientationGate {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: calc(var(--safe-t) + 24px) 24px calc(var(--safe-b) + 24px);
+    background: radial-gradient(circle at 50% 40%, var(--bg-2), var(--bg-0) 72%);
+  }
+}
+
+@media (orientation: landscape) {
+  [data-required-orientation='portrait'].orientationGate {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: calc(var(--safe-t) + 24px) calc(var(--safe-r) + 24px) calc(var(--safe-b) + 24px) calc(var(--safe-l) + 24px);
+    background: radial-gradient(circle at 50% 40%, var(--bg-2), var(--bg-0) 72%);
+  }
+}
+
+.orientationCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  max-width: 22em;
+}
+
+.orientationIcon {
+  width: 76px;
+  height: 46px;
+  border-radius: 8px;
+  border: 2px solid var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: rotateHint 2.4s ease-in-out infinite;
+}
+
+.orientationPhone {
+  width: 34px;
+  height: 18px;
+  border-radius: 3px;
+  border: 2px solid var(--line-strong);
+}
+
+@keyframes rotateHint {
+  0%,
+  35% {
+    transform: rotate(0deg);
+  }
+  65%,
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+.orientationTitle {
+  margin: 0;
+  font-family: var(--font-hand);
+  font-size: 17px;
+  letter-spacing: 0.16em;
+  color: var(--ink-0);
+}
+
+.orientationHint {
+  margin: 0 0 4px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--ink-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orientationIcon {
+    animation: none;
+  }
+}
+/* ── 崩溃兜底页 ─────────────────────────────────────────────── */
+
+.crash {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--safe-t) + 20px) calc(var(--safe-x) + 20px) calc(var(--safe-b) + 20px);
+  background: radial-gradient(circle at 50% 40%, var(--bg-2), var(--bg-0) 72%);
+}
+
+.crashCard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(520px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 20px;
+  border-radius: var(--radius-l);
+  border: 1px solid var(--line-strong);
+  background: linear-gradient(180deg, var(--bg-2), var(--bg-1));
+  box-shadow: var(--shadow-panel);
+}
+
+.crashTitle {
+  margin: 0;
+  font-family: var(--font-hand);
+  font-size: 17px;
+  letter-spacing: 0.14em;
+  color: var(--danger);
+}
+
+.crashHint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--ink-1);
+}
+
+.crashDetail {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-s);
+  background: rgba(0, 0, 0, 0.32);
+  color: var(--ink-2);
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 8em;
+  overflow-y: auto;
+}
+
+.crashActions {
+  display: flex;
+  gap: 10px;
+}
+
+.crashActions > * {
+  flex: 1;
 }

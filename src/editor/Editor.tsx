@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { SceneSchema, resolveInteractions, type Hotspot, type Interaction, type Scene } from '../schema/scene.ts'
 import { loadContent } from '../content/load.ts'
 import { AssetStore } from '../engine/assets.ts'
@@ -8,6 +8,7 @@ import { renderScene } from '../render/sceneRenderer.ts'
 import { project, solveHomography, unproject, type Homography, type Pt } from '../render/homography.ts'
 import { planeToCell } from '../engine/nav/mask.ts'
 import { MASK_BLOCKED, MASK_WALKABLE } from '../schema/common.ts'
+import { applyInteractionSummaryEdit } from '../schema/scene.rules.ts'
 import styles from './editor.module.css'
 
 /**
@@ -58,6 +59,7 @@ function emptyInteraction(): Interaction {
     setVisible: null,
     emit: null,
     sfx: null,
+    effects: [],
   }
 }
 
@@ -65,7 +67,15 @@ function emptyInteraction(): Interaction {
 function emptyLayer(index: number) {
   return {
     id: `layer_${index}`,
-    image: '',
+    /*
+     * 占位路径而不是空串。
+     *
+     * 图层 schema 要求 `image` 至少 1 个字符，空串会让**整份场景**变成非法
+     * —— 作者点一下"加图层"，之后连别的有效编辑也一起导不出去，而状态栏
+     * 只说"layers.0.image Too small"，很难联想到是刚才那一下点击造成的。
+     * 给个明显是占位的路径，作者一眼就知道要改它。
+     */
+    image: 'assets/placeholder.png',
     visualStates: {},
     initialState: null,
     position: null,
@@ -126,6 +136,8 @@ function newSceneTemplate(id: string): Scene {
   })
 }
 
+import { editorSceneReducer, EMPTY_EDITOR_SCENES } from './editorSceneState.ts'
+
 interface DragState {
   kind: 'ground' | 'hotspot' | 'approach' | 'spawn' | 'size' | 'newHotspot' | 'paint'
   index: number
@@ -138,8 +150,8 @@ export function Editor(): React.ReactElement {
   const runtimeRef = useRef<SceneRuntime | null>(null)
   const assetsRef = useRef(new AssetStore())
 
-  const [allScenes, setAllScenes] = useState<Scene[]>([])
-  const [draft, setDraft] = useState<Scene | null>(null)
+  const [sceneState, dispatchScene] = useReducer(editorSceneReducer, EMPTY_EDITOR_SCENES)
+  const { draft } = sceneState
   const [tool, setTool] = useState<Tool>('select')
   const [selectedHotspot, setSelectedHotspot] = useState<string | null>(null)
   const [viewport, setViewport] = useState({ x: 0, y: 0, w: 0, h: 0 })
@@ -153,13 +165,10 @@ export function Editor(): React.ReactElement {
   useEffect(() => {
     void loadContent().then((content) => {
       const scenes = [...content.scenes.values()]
-      setAllScenes(scenes)
-      // 默认打开起始场景，而不是字母序第一个 ——
-      // Map 的顺序来自文件名的字典序，hall 会排在 start 前面，
-      // 那样一进编辑器就在改错的场景。
-      const initial =
-        scenes.find((scene) => scene.id === content.startSceneId) ?? scenes[0] ?? newSceneTemplate('new_scene')
-      setDraft(JSON.parse(JSON.stringify(initial)) as Scene)
+      dispatchScene({
+        type: 'load', scenes: scenes.length > 0 ? scenes : [newSceneTemplate('new_scene')],
+        startSceneId: content.startSceneId,
+      })
       setMissing(content.warnings)
     })
   }, [])
@@ -199,7 +208,18 @@ export function Editor(): React.ReactElement {
         stage.aspect = runtime.aspect
         stage.resize(rect.width, rect.height)
         setViewport((prev) =>
-          Math.abs(prev.w - stage.viewport.w) > 0.5 || Math.abs(prev.x - stage.viewport.x) > 0.5
+          /*
+           * **四个分量都要比。**
+           *
+           * 只比 w/x 会漏掉"窗口只改了高度"这种情况：宽度不变，letterbox
+           * 只把 y 挪了一段，于是 SVG overlay 还停在旧位置 —— 实测差 35px，
+           * 拖角点、画热点、放走位点的**视觉与命中全部偏移**，
+           * 而且偏差不会自愈。
+           */
+          Math.abs(prev.w - stage.viewport.w) > 0.5 ||
+          Math.abs(prev.h - stage.viewport.h) > 0.5 ||
+          Math.abs(prev.x - stage.viewport.x) > 0.5 ||
+          Math.abs(prev.y - stage.viewport.y) > 0.5
             ? { ...stage.viewport }
             : prev,
         )
@@ -233,8 +253,18 @@ export function Editor(): React.ReactElement {
     return stage.toScene(event.clientX, event.clientY)
   }
 
+  /*
+   * 把当前草稿挂到 window 上，供自动化测试读取。
+   *
+   * 导出按钮会触发下载，测试里拿不到内容；而这个编辑器本来就是开发工具，
+   * 暴露一个句柄换来的可测性和 __HB__ 是同一个取舍。
+   */
+  useEffect(() => {
+    ;(window as unknown as { __EDITOR_DRAFT__?: Scene }).__EDITOR_DRAFT__ = draft ?? undefined
+  }, [draft])
+
   const patch = (updater: (scene: Scene) => Scene): void => {
-    setDraft((prev) => (prev ? updater(prev) : prev))
+    dispatchScene({ type: 'patch', update: updater })
   }
 
   // ── 指针交互 ─────────────────────────────────────────────
@@ -424,21 +454,21 @@ export function Editor(): React.ReactElement {
             <select
               className={styles.select}
               aria-label="当前场景"
-              value={draft.id}
+              value={sceneState.activeKey ?? ''}
               onChange={(event) => {
-                const found = allScenes.find((s) => s.id === event.target.value)
-                if (found) {
-                  setDraft(JSON.parse(JSON.stringify(found)) as Scene)
-                  setSelectedHotspot(null)
-                }
+                dispatchScene({ type: 'select', key: event.target.value })
+                setSelectedHotspot(null)
               }}
             >
-              {allScenes.map((scene) => (
-                <option key={scene.id} value={scene.id}>
-                  {scene.id}
-                </option>
-              ))}
-              <option value={draft.id}>{draft.id}（当前）</option>
+              {sceneState.entries.map(({ key, source }) => {
+                const current = key === sceneState.activeKey ? draft : sceneState.drafts.get(key) ?? source
+                return (
+                  <option key={key} value={key}>
+                    {current.id}
+                    {sceneState.editedKeys.has(key) ? '（已改）' : ''}
+                  </option>
+                )
+              })}
             </select>
           </div>
           <div className={styles.row}>
@@ -623,6 +653,14 @@ export function Editor(): React.ReactElement {
               scene={draft}
               hotspotId={selectedHotspot}
               onChange={patch}
+              /*
+               * 改 id 之后选中态要跟着走。
+               *
+               * `HotspotEditor` 靠 `hotspotId` 在场景里找物件，找不到就整个
+               * 返回 null —— 点名一改，交互面板连同画布高亮一起消失，
+               * 看起来像"编辑器坏了"，其实只是选中了一个已经不存在的 id。
+               */
+              onRename={(next) => setSelectedHotspot(next)}
               onKnotFocus={() => undefined}
             />
           ) : (
@@ -776,8 +814,14 @@ export function Editor(): React.ReactElement {
             className={styles.button}
             style={{ width: '100%', marginTop: 6 }}
             onClick={() => {
-              idSeqRef.current += 1
-              setDraft(newSceneTemplate(`scene_${idSeqRef.current}`))
+              let nextId: string
+              do {
+                idSeqRef.current += 1
+                nextId = `scene_${idSeqRef.current}`
+              } while (sceneState.entries.some(({ key, source }) =>
+                key === nextId || (key === sceneState.activeKey ? draft : sceneState.drafts.get(key) ?? source).id === nextId,
+              ))
+              dispatchScene({ type: 'add', scene: newSceneTemplate(nextId) })
               setSelectedHotspot(null)
             }}
           >
@@ -1008,11 +1052,14 @@ function HotspotEditor({
   scene,
   hotspotId,
   onChange,
+  onRename,
   onKnotFocus,
 }: {
   scene: Scene
   hotspotId: string
   onChange: (updater: (scene: Scene) => Scene) => void
+  /** 改 id 时通知外面把选中态迁到新 id，否则面板会整个消失。 */
+  onRename: (nextId: string) => void
   onKnotFocus: () => void
 }): React.ReactElement | null {
   const hotspot = scene.hotspots.find((h) => h.id === hotspotId)
@@ -1029,7 +1076,19 @@ function HotspotEditor({
 
   const updateInteraction = (index: number, next: Partial<Interaction>): void => {
     const list = (hotspot.interactions.length > 0 ? hotspot.interactions : effective).map((item, i) =>
-      i === index ? { ...item, ...next } : item,
+      /*
+       * **写穿到 effects**，不能只改摘要字段。
+       *
+       * 有 `effects` 的交互，导出时解析会用 `summarizeEffects` 从 effects
+       * 反推摘要字段，把这里刚写的值覆盖回去 —— 表现是"改了没反应"，
+       * 而且不报任何错。见 applyInteractionSummaryEdit 的说明。
+       */
+      i === index
+        ? (applyInteractionSummaryEdit(
+            item as unknown as Record<string, unknown>,
+            next as unknown as Record<string, unknown>,
+          ) as unknown as Interaction)
+        : item,
     )
     // 一旦编辑就落成新形态，旧字段清空，避免两套并存
     update({ interactions: list, onClick: null, acceptsItem: null, onUse: null })
@@ -1062,7 +1121,15 @@ function HotspotEditor({
     <>
       <div className={styles.row}>
         <span className={styles.label}>id</span>
-        <input className={styles.input} value={hotspot.id} onChange={(e) => update({ id: e.target.value })} />
+        <input
+          className={styles.input}
+          value={hotspot.id}
+          onChange={(e) => {
+            // 先改名再迁选中态：两步都在同一次事件里，React 会合并成一次渲染
+            update({ id: e.target.value })
+            onRename(e.target.value)
+          }}
+        />
       </div>
       <div className={styles.row}>
         <span className={styles.label}>标签</span>
@@ -1204,7 +1271,13 @@ function HotspotEditor({
               <option value="inspect">inspect 点击</option>
               <option value="use">use 用物品</option>
               <option value="drag">drag 拖放</option>
-              <option value="hold">hold 长按（未实现）</option>
+              {/*
+                `hold` **是已实现的**：input/router 会发 hold 事件，resolver 会匹配
+                verb === 'hold'，demo 的 hs_mark 就在用长按。以前这里标着"未实现"，
+                作者会因此避开一个完全能用的动词。只有 `sequence` 是真的没实现
+                （content:check 会拦）。
+              */}
+              <option value="hold">hold 长按</option>
               <option value="sequence">sequence 顺序（未实现）</option>
             </select>
             <input

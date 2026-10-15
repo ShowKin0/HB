@@ -49,6 +49,8 @@ export interface ActorContext {
   project(u: number, v: number): Pt
   /** 该点的局部缩放，用于把身高换算成平面步幅。 */
   localScale(u: number, v: number): number
+  /** 场景坐标 x/y 投影到屏幕时的宽高比。 */
+  aspect?: number
   onFootstep?(actor: Actor): void
   /** 走完全程时触发一次，knot 来自 moveActorTo。 */
   onArrive?(actor: Actor, knot: string | null): void
@@ -193,12 +195,18 @@ function updateFacing(actor: Actor, dt: number, ctx: ActorContext): void {
     const [x1, y1] = ctx.project(actor.u + dir[0] * 0.02, actor.v + dir[1] * 0.02)
     const dx = x1 - x0
     const dy = y1 - y0
-    const len = Math.hypot(dx, dy)
+    const aspect = Number.isFinite(ctx.aspect) && (ctx.aspect ?? 0) > 0 ? (ctx.aspect as number) : 1
+    // `project` returns normalized scene coordinates. Convert x to the same
+    // pixel scale as y before selecting an octant; otherwise a 16:9 scene
+    // makes diagonal movement appear too vertical/horizontal.
+    const screenDx = dx * aspect
+    const screenDy = dy
+    const len = Math.hypot(screenDx, screenDy)
     if (len > 1e-6) {
-      actor.faceDirX = dx / len
-      actor.faceDirY = dy / len
+      actor.faceDirX = screenDx / len
+      actor.faceDirY = screenDy / len
       // 仅当水平分量足够大时才换向，避免"直上直下"时角色左右乱翻
-      if (Math.abs(dx) > 1e-5) actor.facingTarget = dx > 0 ? 1 : -1
+      if (Math.abs(screenDx) > 1e-5) actor.facingTarget = screenDx > 0 ? 1 : -1
     }
   }
   actor.facing = damp(actor.facing, actor.facingTarget, 13, dt)

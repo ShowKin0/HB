@@ -1,8 +1,12 @@
-import { create } from 'zustand'
+﻿import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { ChoiceView } from '../engine/ink/inkBridge.ts'
 import type { DialogueLine, DebugInfo } from '../engine/game.ts'
-import { DEFAULT_AUDIO_SETTINGS, type AudioSettings } from '../engine/audio.ts'
+import {
+  DEFAULT_AUDIO_SETTINGS,
+  sanitizeAudioSettings,
+  type AudioSettings,
+} from '../engine/audio.ts'
 import type { DebugFlags } from '../render/sceneRenderer.ts'
 import { DEFAULT_DEBUG } from '../render/sceneRenderer.ts'
 import type { SlotInfo } from '../engine/save.ts'
@@ -107,6 +111,19 @@ export const useAudioSettings = create<AudioState>()(
       audio: { ...DEFAULT_AUDIO_SETTINGS },
       setAudio: (next) => set((state) => ({ audio: { ...state.audio, ...next } })),
     }),
-    { name: 'hb.audio' },
+    {
+      name: 'hb.audio',
+      /*
+       * persist 默认是浅合并，**不做任何校验** —— localStorage 里放什么就
+       * 用什么。这里在恢复时净化一遍，脏数据进不了应用（详见
+       * sanitizeAudioSettings 的注释）。
+       */
+      merge: (persisted, current) => ({
+        ...current,
+        audio: sanitizeAudioSettings(
+          (persisted as { audio?: unknown } | undefined)?.audio,
+        ),
+      }),
+    },
   ),
 )

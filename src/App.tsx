@@ -1,5 +1,7 @@
-import { lazy, Suspense } from 'react'
+﻿import { lazy, Suspense, useEffect } from 'react'
 import { GameShell } from './ui/GameShell.tsx'
+import { ErrorBoundary } from './ui/ErrorBoundary.tsx'
+import { installGlobalErrorReporting } from './ui/reportError.ts'
 
 /**
  * 开发模式下访问 /edit 进入场景编辑器；其余情况一律是游戏本体。
@@ -27,12 +29,23 @@ function isEditorRoute(): boolean {
 }
 
 export default function App(): React.ReactElement {
-  if (EditorLazy && isEditorRoute()) {
-    return (
+  /*
+   * 异步错误不走错误边界（它只接渲染期异常），必须自己接。
+   * 装在应用根上，保证任何路径下都生效。
+   */
+  useEffect(() => {
+    installGlobalErrorReporting()
+  }, [])
+
+  const content =
+    EditorLazy && isEditorRoute() ? (
       <Suspense fallback={null}>
         <EditorLazy />
       </Suspense>
+    ) : (
+      <GameShell />
     )
-  }
-  return <GameShell />
+
+  // 兜底：渲染期抛错时不白屏（React 19 默认会卸载整棵树）
+  return <ErrorBoundary>{content}</ErrorBoundary>
 }

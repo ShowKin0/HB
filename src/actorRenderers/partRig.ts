@@ -1,8 +1,8 @@
 import type { Pt } from '../engine/nav/smooth.ts'
 import type { AssetStore } from '../engine/assets.ts'
 import type { ActorSpec } from '../schema/scene.ts'
-import { PART_NAMES, type PartAtlasFile, type PartDef } from '../schema/rig.rules.ts'
-import { shade } from '../render/color.ts'
+import { PART_NAMES, type PartDef } from '../schema/rig.rules.ts'
+import { safeColor, shade } from '../render/color.ts'
 import {
   add,
   type ActorDrawEnv,
@@ -60,6 +60,31 @@ export interface PartRigResources {
   images: Record<string, CanvasImageSource | null>
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function safePair(value: unknown, fallback: Pt): Pt {
+  if (!Array.isArray(value) || value.length < 2) return fallback
+  const x = value[0]
+  const y = value[1]
+  return typeof x === 'number' && Number.isFinite(x) && typeof y === 'number' && Number.isFinite(y)
+    ? [x, y]
+    : fallback
+}
+
+function normalizePartDef(value: unknown): PartDef | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const raw = value as Record<string, unknown>
+  if (typeof raw.image !== 'string' || !raw.image.trim()) return null
+  return {
+    image: raw.image,
+    pivot: safePair(raw.pivot, [0.5, 1]) as [number, number],
+    offset: safePair(raw.offset, [0, 0]) as [number, number],
+    height: typeof raw.height === 'number' && Number.isFinite(raw.height) && raw.height > 0 ? raw.height : 0.2,
+  }
+}
+
 /** 部件图在画布上的落点，以关节为原点。抽成纯函数以便单测。 */
 export interface PartRect {
   x: number
@@ -74,13 +99,26 @@ export interface PartRect {
  * pivot 是"关节在该图内的位置"（0..1）。pivot [0.5, 1] 表示图的底边中点
  * 贴在关节上 —— 四肢通常这么配；头部一般用 [0.5, 0.5]。
  */
-export function computePartRect(def: PartDef, imageAspect: number, heightPx: number): PartRect {
-  const width = heightPx * imageAspect
+export function computePartRect(
+  def: PartDef,
+  imageAspect: number,
+  heightPx: number,
+  offsetPx: Pt = [0, 0],
+): PartRect {
+  const safeDef = normalizePartDef(def) ?? {
+    image: '',
+    pivot: [0.5, 1] as [number, number],
+    offset: [0, 0] as [number, number],
+    height: 0.2,
+  }
+  const safeHeight = Number.isFinite(heightPx) ? heightPx : 0
+  const width = safeHeight * (Number.isFinite(imageAspect) ? imageAspect : 1)
   return {
-    x: -def.pivot[0] * width,
-    y: -def.pivot[1] * heightPx,
+    // pivot 负责把图片上的关节对准原点，offset 再按身高比例把它挪一点
+    x: -safeDef.pivot[0] * width + offsetPx[0],
+    y: -safeDef.pivot[1] * safeHeight + offsetPx[1],
     width,
-    height: heightPx,
+    height: safeHeight,
   }
 }
 
@@ -105,7 +143,21 @@ function drawPartImage(
   angle: number,
 ): void {
   const { ctx, transform: t } = env
-  const rect = computePartRect(def, imageAspect(image), transformLen(t, def.height))
+  /*
+   * `offset` 终于被用上了。
+   *
+   * 它此前是 schema 里的**必填**字段：文档教作者写、缺了 `content:check`
+   * 还会报错 —— 但全仓没有一行代码读它，写什么渲染结果都一样。
+   * （顺带：zod 那边的注释说它是"关节在角色局部空间的位置"，和这里的
+   * "相对关节的额外偏移"是两回事。按绘制流程，后者才对：这段变换先平移到
+   * 关节，`computePartRect` 返回的就是关节局部坐标。注释已改正。）
+   *
+   * 单位是身高比例，所以要跟着 transform 一起换算成像素。
+   */
+  const rect = computePartRect(def, imageAspect(image), transformLen(t, def.height), [
+    transformLen(t, def.offset[0]),
+    transformLen(t, def.offset[1]),
+  ])
   ctx.save()
   ctx.translate(transformX(t, joint[0]), transformY(t, joint[1]))
   ctx.scale(t.sx, 1)
@@ -188,14 +240,18 @@ function draw(env: ActorDrawEnv, resources?: unknown): void {
   const { palette: p, actor } = env
   const pose = actor.pose
   const atlas = resources as PartRigResources | undefined
+  const parts = isRecord(atlas?.parts) ? (atlas.parts as Record<string, unknown>) : null
+  const images = isRecord(atlas?.images) ? (atlas.images as Record<string, CanvasImageSource | null>) : null
 
-  // 被前景遮挡时整体压暗，读起来就"走到桌子后面了"
-  const tone = (color: string): string => (env.dimmed ? shade(color, 0.62) : color)
+  // 被前景遮挡时整体压暗，读起来就"走到桌子后面了"。
+  // 两个分支都必须给出 canvas 认得的颜色：`tint` 走运行时路径时不校验格式，
+  // 直接把 'tomato' 这种值交给 strokeStyle，canvas 会静默忽略并沿用上一个颜色
+  const tone = (color: string): string => (env.dimmed ? shade(color, 0.62) : safeColor(color))
 
   /** 有部件图就用图，没有就回落程序化胶囊体 —— 可以逐个部件替换。 */
-  const part = (name: string, joint: Pt, angle: number, fallback: () => void): void => {
-    const def = atlas?.parts[name]
-    const image = atlas?.images[name]
+    const part = (name: string, joint: Pt, angle: number, fallback: () => void): void => {
+    const def = normalizePartDef(parts?.[name])
+    const image = images?.[name]
     if (def && image) drawPartImage(env, def, image, joint, angle)
     else fallback()
   }
@@ -261,23 +317,39 @@ function draw(env: ActorDrawEnv, resources?: unknown): void {
 /** 加载部件图集。没配 parts 或加载失败时返回 undefined，渲染器走程序化路径。 */
 async function prepare(spec: ActorSpec, assets: AssetStore): Promise<PartRigResources | undefined> {
   if (!spec.parts) return undefined
-  const atlas = await assets.json<PartAtlasFile>(spec.parts)
-  if (!atlas || typeof atlas.parts !== 'object') return undefined
+  let atlas: unknown
+  try {
+    atlas = await assets.json<unknown>(spec.parts)
+  } catch {
+    return undefined
+  }
+  if (!isRecord(atlas) || !isRecord(atlas.parts)) return undefined
 
+  const rawParts = atlas.parts
   const known = new Set<string>(PART_NAMES)
-  const unknown = Object.keys(atlas.parts).filter((name) => !known.has(name))
+  const unknown = Object.keys(rawParts).filter((name) => !known.has(name))
   if (unknown.length > 0) {
     console.warn(`[partRig] 图集里这些部件名不被识别，会被忽略：${unknown.join(', ')}`)
   }
 
+  const parts: Record<string, PartDef> = {}
+  for (const [name, rawDef] of Object.entries(rawParts)) {
+    const def = normalizePartDef(rawDef)
+    if (def) parts[name] = def
+  }
+
   const images: Record<string, CanvasImageSource | null> = {}
   await Promise.all(
-    Object.entries(atlas.parts).map(async ([name, def]) => {
-      images[name] = await assets.image(def.image)
+    Object.entries(parts).map(async ([name, def]) => {
+      try {
+        images[name] = await assets.image(def.image)
+      } catch {
+        images[name] = null
+      }
     }),
   )
 
-  return { parts: atlas.parts, images }
+  return { parts, images }
 }
 
 export const partRigRenderer: ActorRenderer = {

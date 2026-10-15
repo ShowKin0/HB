@@ -1,4 +1,4 @@
-import type { MiniGame, MiniGameHandle, MiniGameResult } from './types.ts'
+import { numberParam, parseMiniGameArgs, type MiniGame, type MiniGameHandle, type MiniGameResult } from './types.ts'
 
 /**
  * 示例小游戏：记住并复现亮灯顺序。
@@ -13,9 +13,9 @@ import type { MiniGame, MiniGameHandle, MiniGameResult } from './types.ts'
 
 export interface TapSequenceParams {
   /** 序列长度，默认 3。 */
-  length?: number
+  length: number
   /** 每步亮灯毫秒数，默认 620。 */
-  speed?: number
+  speed: number
 }
 
 const PAD_COUNT = 4
@@ -26,9 +26,32 @@ export const tapSequence: MiniGame<TapSequenceParams, MiniGameResult> = {
   title: '记住顺序',
   hint: '看一遍亮灯顺序，然后照着点回来。',
 
+  /*
+   * 参数 Schema 属于玩法自己。
+   *
+   * 引擎只把指令括号里的原文交过来，怎么解释由这里决定 ——
+   * 通用容器不该知道"length 是什么"。
+   */
+  params: {
+    parse(args) {
+      const parsed = parseMiniGameArgs(args)
+      return {
+        length: Math.round(numberParam(parsed, 'length', 3, { min: 2, max: 8 })),
+        speed: numberParam(parsed, 'speed', 620, { min: 200, max: 1500 }),
+      }
+    },
+  },
+
+  result: {
+    isSuccess: (result) => result.success === true,
+  },
+
+  // 生日礼物不能卡关：失败三次就给出跳过入口
+  skip: { skipAfter: 3 },
+
   mount(container, params, api): MiniGameHandle {
-    const length = Math.max(2, Math.min(8, Math.round(params?.length ?? 3)))
-    const speed = Math.max(200, Math.min(1500, params?.speed ?? 620))
+    const length = params.length
+    const speed = params.speed
 
     const root = document.createElement('div')
     root.style.cssText = [
@@ -108,10 +131,16 @@ export const tapSequence: MiniGame<TapSequenceParams, MiniGameResult> = {
     let inputIndex = 0
     let accepting = false
     let finished = false
-    const timers: number[] = []
-
+    let paused = false
+    const timers = new Set<{ fn: () => void; remaining: number; due: number; id: number | null }>()
+    const schedule = (task: { fn: () => void; remaining: number; due: number; id: number | null }): void => {
+      task.due = performance.now() + task.remaining
+      task.id = window.setTimeout(() => { timers.delete(task); task.fn() }, task.remaining)
+    }
     const later = (fn: () => void, ms: number): void => {
-      timers.push(window.setTimeout(fn, ms))
+      const task = { fn, remaining: ms, due: 0, id: null as number | null }
+      timers.add(task)
+      if (!paused) schedule(task)
     }
 
     const flash = (index: number, on: boolean): void => {
@@ -136,7 +165,7 @@ export const tapSequence: MiniGame<TapSequenceParams, MiniGameResult> = {
     }
 
     const onPad = (index: number): void => {
-      if (!accepting || finished) return
+      if (!accepting || finished || paused) return
       flash(index, true)
       later(() => flash(index, false), 140)
 
@@ -144,7 +173,8 @@ export const tapSequence: MiniGame<TapSequenceParams, MiniGameResult> = {
         accepting = false
         api.reportFailure()
         status.textContent = `点错了。已失败 ${api.failures} 次`
-        if (api.failures >= api.skipAfter) skip.style.display = 'block'
+        // skipAfter 为 null 表示这次不允许跳过（例如关键剧情），此时不显示入口
+        if (api.skipAfter !== null && api.failures >= api.skipAfter) skip.style.display = 'block'
         later(playSequence, 900)
         return
       }
@@ -163,8 +193,25 @@ export const tapSequence: MiniGame<TapSequenceParams, MiniGameResult> = {
 
     const cleanup = (): void => {
       finished = true
-      for (const timer of timers) window.clearTimeout(timer)
-      timers.length = 0
+      for (const task of timers) if (task.id !== null) window.clearTimeout(task.id)
+      timers.clear()
+    }
+
+    const pause = (): void => {
+      if (paused || finished) return
+      paused = true
+      const now = performance.now()
+      for (const task of timers) {
+        if (task.id !== null) window.clearTimeout(task.id)
+        task.remaining = Math.max(0, task.due - now)
+        task.id = null
+      }
+    }
+
+    const resume = (): void => {
+      if (!paused || finished) return
+      paused = false
+      for (const task of timers) schedule(task)
     }
 
     playSequence()
@@ -174,6 +221,8 @@ export const tapSequence: MiniGame<TapSequenceParams, MiniGameResult> = {
         cleanup()
         root.remove()
       },
+      pause,
+      resume,
     }
   },
 }

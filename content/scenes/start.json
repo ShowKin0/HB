@@ -7,10 +7,22 @@
   "aspect": 1.7777777777777777,
   "ground": {
     "corners": [
-      [0.08, 0.55],
-      [0.92, 0.55],
-      [1.0, 0.98],
-      [0.0, 0.98]
+      [
+        0.08,
+        0.55
+      ],
+      [
+        0.92,
+        0.55
+      ],
+      [
+        1,
+        0.98
+      ],
+      [
+        0,
+        0.98
+      ]
     ]
   },
   "walkable": [
@@ -35,7 +47,10 @@
     {
       "id": "hero",
       "renderer": "partRig",
-      "spawn": [0.5, 0.85],
+      "spawn": [
+        0.5,
+        0.85
+      ],
       "heightRatio": 0.22,
       "speed": 0.42,
       "facing": 1,
@@ -47,22 +62,39 @@
   "hotspots": [
     {
       "id": "hs_room",
-      "shape": { "type": "rect", "x": 0.32, "y": 0.58, "w": 0.36, "h": 0.14 },
+      "shape": {
+        "type": "rect",
+        "x": 0.32,
+        "y": 0.58,
+        "w": 0.36,
+        "h": 0.14
+      },
       "label": "矮桌",
       "cursor": "look",
       "visibleWhen": null,
-      "approach": [0.5, 0.7],
+      "approach": [
+        0.5,
+        0.7
+      ],
       "image": null,
       "visualStates": {},
       "initialState": null,
       "position": null,
-      "anchor": [0.5, 0.5],
+      "anchor": [
+        0.5,
+        0.5
+      ],
       "height": 0.3,
       "scale": 1,
       "rotation": 0,
       "v": 0.5,
       "shadow": false,
-      "anim": { "type": "none", "amplitude": 0.008, "speed": 0.6, "phase": 0 },
+      "anim": {
+        "type": "none",
+        "amplitude": 0.008,
+        "speed": 0.6,
+        "phase": 0
+      },
       "interactions": [
         {
           "verb": "inspect",
@@ -79,22 +111,39 @@
     },
     {
       "id": "hs_shelf",
-      "shape": { "type": "rect", "x": 0.04, "y": 0.26, "w": 0.19, "h": 0.3 },
+      "shape": {
+        "type": "rect",
+        "x": 0.12,
+        "y": 0.26,
+        "w": 0.19,
+        "h": 0.3
+      },
       "label": "书架",
       "cursor": "look",
       "visibleWhen": null,
-      "approach": [0.16, 0.62],
+      "approach": [
+        0.16,
+        0.62
+      ],
       "image": null,
       "visualStates": {},
       "initialState": null,
       "position": null,
-      "anchor": [0.5, 0.5],
+      "anchor": [
+        0.5,
+        0.5
+      ],
       "height": 0.3,
       "scale": 1,
       "rotation": 0,
       "v": 0.5,
       "shadow": false,
-      "anim": { "type": "none", "amplitude": 0.008, "speed": 0.6, "phase": 0 },
+      "anim": {
+        "type": "none",
+        "amplitude": 0.008,
+        "speed": 0.6,
+        "phase": 0
+      },
       "interactions": [
         {
           "verb": "inspect",
@@ -111,22 +160,38 @@
     },
     {
       "id": "hs_key",
-      "shape": { "type": "circle", "cx": 0.135, "cy": 0.4, "r": 0.055 },
+      "shape": {
+        "type": "circle",
+        "cx": 0.175,
+        "cy": 0.175,
+        "r": 0.055
+      },
       "label": "钥匙",
       "cursor": "take",
       "visibleWhen": "can_take_key",
-      "approach": [0.17, 0.6],
+      "approach": [
+        0.17,
+        0.6
+      ],
       "image": null,
       "visualStates": {},
       "initialState": null,
       "position": null,
-      "anchor": [0.5, 0.5],
+      "anchor": [
+        0.5,
+        0.5
+      ],
       "height": 0.3,
       "scale": 1,
       "rotation": 0,
       "v": 0.5,
       "shadow": false,
-      "anim": { "type": "none", "amplitude": 0.008, "speed": 0.6, "phase": 0 },
+      "anim": {
+        "type": "none",
+        "amplitude": 0.008,
+        "speed": 0.6,
+        "phase": 0
+      },
       "interactions": [
         {
           "verb": "inspect",
@@ -143,7 +208,13 @@
     },
     {
       "id": "hs_window",
-      "shape": { "type": "rect", "x": 0.42, "y": 0.1, "w": 0.16, "h": 0.18 },
+      "shape": {
+        "type": "rect",
+        "x": 0.42,
+        "y": 0.12,
+        "w": 0.16,
+        "h": 0.18
+      },
       "label": "窗户",
       "cursor": "look",
       "visibleWhen": null,
@@ -152,13 +223,21 @@
       "visualStates": {},
       "initialState": null,
       "position": null,
-      "anchor": [0.5, 0.5],
+      "anchor": [
+        0.5,
+        0.5
+      ],
       "height": 0.3,
       "scale": 1,
       "rotation": 0,
       "v": 0.5,
       "shadow": false,
-      "anim": { "type": "none", "amplitude": 0.008, "speed": 0.6, "phase": 0 },
+      "anim": {
+        "type": "none",
+        "amplitude": 0.008,
+        "speed": 0.6,
+        "phase": 0
+      },
       "interactions": [
         {
           "verb": "inspect",
@@ -175,22 +254,39 @@
     },
     {
       "id": "hs_door",
-      "shape": { "type": "rect", "x": 0.74, "y": 0.22, "w": 0.18, "h": 0.36 },
+      "shape": {
+        "type": "rect",
+        "x": 0.7,
+        "y": 0.22,
+        "w": 0.18,
+        "h": 0.36
+      },
       "label": "门",
       "cursor": "use",
       "visibleWhen": null,
-      "approach": [0.78, 0.62],
+      "approach": [
+        0.78,
+        0.62
+      ],
       "image": null,
       "visualStates": {},
       "initialState": "locked",
       "position": null,
-      "anchor": [0.5, 0.5],
+      "anchor": [
+        0.5,
+        0.5
+      ],
       "height": 0.3,
       "scale": 1,
       "rotation": 0,
       "v": 0.5,
       "shadow": false,
-      "anim": { "type": "none", "amplitude": 0.008, "speed": 0.6, "phase": 0 },
+      "anim": {
+        "type": "none",
+        "amplitude": 0.008,
+        "speed": 0.6,
+        "phase": 0
+      },
       "interactions": [
         {
           "verb": "inspect",
@@ -218,7 +314,9 @@
           "verb": "drag",
           "when": null,
           "item": null,
-          "accepts": ["item_key"],
+          "accepts": [
+            "item_key"
+          ],
           "action": "use_key_door",
           "setState": "unlocked",
           "setVisible": null,
@@ -232,7 +330,13 @@
   "exits": [
     {
       "id": "ex_hall",
-      "shape": { "type": "rect", "x": 0.9, "y": 0.6, "w": 0.1, "h": 0.36 },
+      "shape": {
+        "type": "rect",
+        "x": 0.78,
+        "y": 0.52,
+        "w": 0.1,
+        "h": 0.36
+      },
       "to": "go_hall",
       "when": "is_door_unlocked"
     }

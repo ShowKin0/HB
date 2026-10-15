@@ -143,6 +143,89 @@ describe('visualStates 取图', () => {
   })
 })
 
+describe('物件变换与热点命中一致', () => {
+  it('运行时 position、scale 与 rotation 变更同时改变带图热点命中和高亮形状', async () => {
+    const scene = makeScene({
+      hotspots: [{
+        id: 'item',
+        shape: { type: 'rect', x: 0.45, y: 0.45, w: 0.1, h: 0.1 },
+        image: 'item.png',
+        position: [0.5, 0.5],
+        onClick: 'look_item',
+      }],
+    })
+    const runtime = await SceneRuntime.create(scene, new AssetStore())
+    runtime.patchObjectState('item', { position: [0.7, 0.7] })
+    runtime.collectDrawables(0)
+
+    expect(runtime.hotspotAt(0.75, 0.75)?.id).toBe('item')
+    expect(runtime.hotspotAt(0.5, 0.5)).toBeNull()
+    const moved = runtime.hotspotShape('item')!
+    expect(moved.type).toBe('poly')
+
+    runtime.patchObjectState('item', { position: [0.5, 0.5] })
+    // 90° rotation keeps the center but moves a point from the upper edge to the right edge.
+    const rotatedScene = makeScene({
+      hotspots: [{
+        id: 'item',
+        shape: { type: 'rect', x: 0.45, y: 0.4, w: 0.1, h: 0.2 },
+        image: 'item.png',
+        position: [0.5, 0.5],
+        rotation: Math.PI / 2,
+        scale: 1.5,
+        onClick: 'look_item',
+      }],
+    })
+    const rotated = await SceneRuntime.create(rotatedScene, new AssetStore())
+    rotated.collectDrawables(0)
+    expect(rotated.hotspotAt(0.58, 0.5)?.id).toBe('item')
+    expect(rotated.hotspotAt(0.5, 0.66)).toBeNull()
+  })
+
+  it('浮动动效使用最后绘制时刻同步移动热点命中与高亮', async () => {
+    const scene = makeScene({
+      hotspots: [{
+        id: 'float',
+        shape: { type: 'rect', x: 0.45, y: 0.45, w: 0.1, h: 0.1 },
+        image: 'float.png',
+        position: [0.5, 0.5],
+        anim: { type: 'float', amplitude: 0.08, speed: 1, phase: 0 },
+        onClick: 'look_float',
+      }],
+    })
+    const runtime = await SceneRuntime.create(scene, new AssetStore())
+    runtime.collectDrawables(0.25)
+    expect(runtime.hotspotAt(0.5, 0.58)?.id).toBe('float')
+    expect(runtime.hotspotAt(0.5, 0.5)).toBeNull()
+    const shape = runtime.hotspotShape('float')!
+    expect(shape.type).toBe('poly')
+  })
+})
+
+describe('热点重叠优先级', () => {
+  it('带图热点按 v 深度和同深度绘制顺序命中', async () => {
+    const scene = makeScene({
+      hotspots: [
+        { id: 'front', shape: rect, image: 'front.png', v: 0.8, onClick: 'front' },
+        { id: 'back-late', shape: rect, image: 'back.png', v: 0.2, onClick: 'back' },
+      ],
+    })
+    const runtime = await SceneRuntime.create(scene, new AssetStore())
+    expect(runtime.hotspotAt(0.15, 0.15)?.id).toBe('front')
+  })
+
+  it('纯热点仍按后定义优先，兼容背景命中区', async () => {
+    const scene = makeScene({
+      hotspots: [
+        { id: 'first', shape: rect, onClick: 'first' },
+        { id: 'last', shape: rect, onClick: 'last' },
+      ],
+    })
+    const runtime = await SceneRuntime.create(scene, new AssetStore())
+    expect(runtime.hotspotAt(0.15, 0.15)?.id).toBe('last')
+  })
+})
+
 describe('focus 模式', () => {
   it('没有地面时 canWalkAt 永远为假', async () => {
     const scene = makeScene({ hotspots: [{ id: 'a', shape: rect, onClick: 'k' }] })

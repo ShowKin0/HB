@@ -90,18 +90,38 @@ describe('migrateSave', () => {
     expect(migrateSave(future)).toBeNull()
   })
 
-  it('拒绝非有限数值和越界的角色状态', () => {
+  it('必需字段坏掉才判死，角色状态坏掉只丢那一条', () => {
+    // 时间戳是必需的：没有它连"这是什么时候存的"都不知道，排序也做不了
     const nanTime = v1Save()
     nanTime.createdAt = Number.NaN
     expect(migrateSave(nanTime)).toBeNull()
 
+    /*
+     * 位置 / 朝向写坏了只丢那一条。
+     *
+     * 这里以前是"整份存档判 null"，但下面几行的 scenes 却是按条目丢弃的
+     * —— 同一种"坏了一小块"两套标准，而且严厉的那套让玩家直接丢光进度。
+     * 现在统一成按条目降级。
+     */
     const outside = v1Save()
     outside.engine.actorPositions = { hero: [1.2, 0.5] }
-    expect(migrateSave(outside)).toBeNull()
+    const a = migrateSave(outside)
+    expect(a, '越界的位置不该让整份存档作废').not.toBeNull()
+    expect(a!.engine.actorPositions).toEqual({})
 
     const badFacing = v1Save()
     badFacing.engine.actorFacing = { hero: Number.NaN }
-    expect(migrateSave(badFacing)).toBeNull()
+    const b = migrateSave(badFacing)
+    expect(b, '坏的朝向不该让整份存档作废').not.toBeNull()
+    expect(b!.engine.actorFacing).toEqual({})
+  })
+
+  it('好条目与坏条目混在一起时只丢坏的', () => {
+    const raw = v1Save()
+    raw.engine.actorPositions = { good: [0.2, 0.3], bad: [9, 9] }
+    const save = migrateSave(raw)!
+    expect(Object.keys(save.engine.actorPositions)).toEqual(['start:good'])
+    expect(save.engine.actorPositions['start:good']).toEqual([0.2, 0.3])
   })
 
   it('丢弃单个损坏的物件空间状态，不影响存档主体', () => {
